@@ -1,0 +1,66 @@
+name: Backend and ML evaluation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate:
+    name: Synthetic backend and ML checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      APP_ENV: development
+      DATABASE_URL: sqlite:///./trustsentinel_ci.sqlite3
+      API_KEY_SECRET: ""
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Install backend development dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Prepare local CI environment
+        run: cp .env.example .env
+
+      - name: Generate reproducible synthetic dataset
+        run: python scripts/generate_data.py
+
+      - name: Seed isolated SQLite database
+        run: python scripts/seed_database.py
+
+      - name: Train Isolation Forest
+        run: python scripts/train_model.py
+
+      - name: Run backend tests
+        run: python -m pytest
+
+      - name: Evaluate rules, ML, and hybrid scoring
+        run: python scripts/evaluate_model.py
+
+      - name: Print evaluation summary
+        run: >-
+          python -c "import json; r=json.load(open('data/generated/evaluation_report.json', encoding='utf-8')); print(json.dumps({'model_version': r['model_version'], 'dataset_version': r['dataset_version'], 'records': r['records'], 'methods': r['methods'], 'scenario_coverage': r['scenario_coverage']}, indent=2))"
+
+      - name: Upload evaluation report
+        uses: actions/upload-artifact@v4
+        with:
+          name: trustsentinel-backend-evaluation
+          path: backend/data/generated/evaluation_report.json
+          if-no-files-found: error
+          retention-days: 14
