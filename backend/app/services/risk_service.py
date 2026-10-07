@@ -26,6 +26,8 @@ def _response(decision: RiskDecision, signals: list[RiskSignal] | None = None, c
         "ml_status": "available" if decision.ml_score is not None else "unavailable_rules_only",
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "model_version": decision.model_version, "rule_version": decision.rule_version, "latency_ms": decision.latency_ms,
+        "hybrid_policy_version": decision.model_version.split("+", 1)[1] if "+" in decision.model_version else (
+            "hybrid-policy-v1.0.0" if decision.model_version.startswith("iforest-") else "rules-only"),
         "signals": [{"signal_type": s.signal_type, "triggered": True, "severity": s.severity, "evidence": s.evidence,
                      "source_feature": s.source_feature} for s in (signals or [])], "case_id": case.case_id if case else None}
 
@@ -61,7 +63,9 @@ def score_transaction(db: Session, request: RiskRequest, feature_overrides: dict
     # In the rules-only sandbox, unavailable ML contributes no invented score.
     if ml_score is None and not settings.rules_only_fallback:
         raise HTTPException(status_code=503, detail={"error": {"code": "MODEL_UNAVAILABLE", "message": "The configured policy requires the ML model."}})
-    final_score = hybrid_score(rule_score, ml_score, settings.rule_score_weight, settings.ml_score_weight)
+    rule_weight = registry.rule_score_weight if registry.is_available else settings.rule_score_weight
+    ml_weight = registry.ml_score_weight if registry.is_available else settings.ml_score_weight
+    final_score = hybrid_score(rule_score, ml_score, rule_weight, ml_weight)
     band = risk_band(final_score)
     action = action_for(band)
     codes, explanation = explain(signals, band, action)
@@ -77,7 +81,7 @@ def score_transaction(db: Session, request: RiskRequest, feature_overrides: dict
             db.add(row); persisted_signals.append(row)
     decision = RiskDecision(decision_id=f"dec_{uuid.uuid4().hex}", transaction_id=txn.transaction_id, rule_score=rule_score,
         ml_score=ml_score, risk_score=round(final_score, 2), risk_band=band, recommended_action=action,
-        reason_codes=codes, explanation=explanation, model_version=registry.model_version if ml_score is not None else "rules-only",
+        reason_codes=codes, explanation=explanation, model_version=registry.decision_version if ml_score is not None else "rules-only",
         rule_version=settings.rule_version, latency_ms=0.0)
     db.add(decision)
     case = None
@@ -91,6 +95,7 @@ def score_transaction(db: Session, request: RiskRequest, feature_overrides: dict
                     metadata_json={"transaction_id": txn.transaction_id, "risk_score": round(final_score, 2), "risk_band": band, "action": action, "reason_codes": codes,
                         "rule_score": rule_score, "ml_score": ml_score,
                         "model_version": registry.model_version if ml_score is not None else "rules-only",
+                        "hybrid_policy_version": registry.policy_version if ml_score is not None else "rules-only",
                         "ml_status": "available" if ml_score is not None else "unavailable_rules_only"}))
     db.flush()
     latency = round((time.perf_counter() - started) * 1000, 3)
@@ -100,6 +105,7 @@ def score_transaction(db: Session, request: RiskRequest, feature_overrides: dict
     logger.info(json.dumps({"event": "risk_decision", "transaction_id": txn.transaction_id,
         "model_status": "available" if ml_score is not None else "unavailable_rules_only",
         "model_version": registry.model_version if ml_score is not None else "rules-only",
+        "hybrid_policy_version": registry.policy_version if ml_score is not None else "rules-only",
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "rules_score": round(rule_score, 3), "ml_score": ml_score, "hybrid_score": round(final_score, 3),
         "risk_band": band, "action": action, "ml_inference_latency_ms": ml_latency_ms, "decision_latency_ms": latency}))

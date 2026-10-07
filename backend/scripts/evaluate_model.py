@@ -36,6 +36,8 @@ SCENARIOS = (
     "normal",
     "legitimate_high_value",
 )
+BASELINE_RULE_WEIGHT = 0.70
+BASELINE_ML_WEIGHT = 0.30
 
 
 def _confusion(labels: list[int], predictions: list[int]) -> dict:
@@ -67,8 +69,10 @@ def _evaluation_set(path: Path) -> pd.DataFrame:
     if not required.issubset(data.columns):
         raise ValueError("Evaluation dataset schema is stale; run python scripts/generate_data.py first.")
     held_out = data[data["dataset_split"] == "test"].copy()
-    if held_out.empty:
-        raise ValueError("The deterministic held-out test split is empty.")
+    if held_out.empty or len(held_out) != 2_000 or "validation" not in set(data["dataset_split"]):
+        raise ValueError("Expected the unchanged 2,000-row held-out test split and a separate validation split.")
+    if registry.training_split_version != "train_validation_test_v1":
+        raise ValueError("Model artifact was not trained with the current train/validation/test split; recalibrate and retrain.")
     seeds = data["dataset_seed"].dropna().unique().tolist()
     if seeds != [expected_seed]:
         raise ValueError(f"Evaluation data seed {seeds} does not match model dataset {registry.training_dataset_version}; regenerate and retrain together.")
@@ -84,7 +88,7 @@ def evaluate() -> dict:
     data = _evaluation_set(ROOT / "data" / "synthetic" / "transactions.csv")
     labels = [int(value) for value in data["synthetic_label"].tolist()]
 
-    rule_scores, ml_scores, hybrid_scores, ml_times = [], [], [], []
+    rule_scores, ml_scores, old_ml_scores, hybrid_scores, old_hybrid_scores, ml_times = [], [], [], [], [], []
     for record in data.to_dict("records"):
         features = build_ml_features(record)
         # vector() applies the same named schema and order used by online inference.
@@ -93,22 +97,33 @@ def evaluate() -> dict:
         rule_score = score_rules(evaluate_signals(features))
         started = time.perf_counter()
         ml_score = registry.predict(features)
+        old_ml_score = registry.predict(features, apply_selected_calibration=False)
         ml_times.append((time.perf_counter() - started) * 1000)
-        if ml_score is None:
+        if ml_score is None or old_ml_score is None:
             raise RuntimeError("ML inference failed while evaluating the held-out dataset.")
         rule_scores.append(rule_score)
         ml_scores.append(ml_score * 100.0)
-        hybrid_scores.append(hybrid_score(rule_score, ml_score, settings.rule_score_weight, settings.ml_score_weight))
+        old_ml_scores.append(old_ml_score * 100.0)
+        hybrid_scores.append(hybrid_score(rule_score, ml_score, registry.rule_score_weight, registry.ml_score_weight))
+        old_hybrid_scores.append(hybrid_score(rule_score, old_ml_score, BASELINE_RULE_WEIGHT, BASELINE_ML_WEIGHT))
 
     predictions = {
         "rules_only": [int(score >= 60) for score in rule_scores],
         "ml_only": [int(score >= settings.ml_high_risk_threshold * 100) for score in ml_scores],
         "hybrid": [int(score >= 60) for score in hybrid_scores],
+        "old_hybrid_baseline": [int(score >= 60) for score in old_hybrid_scores],
     }
     methods = {
         "rules_only": {"threshold": 60, "metrics": _confusion(labels, predictions["rules_only"])},
         "ml_only": {"threshold": settings.ml_high_risk_threshold * 100, "metrics": _confusion(labels, predictions["ml_only"])},
         "hybrid": {"threshold": 60, "metrics": _confusion(labels, predictions["hybrid"])},
+        "old_hybrid_baseline": {"threshold": 60, "metrics": _confusion(labels, predictions["old_hybrid_baseline"])},
+    }
+    old_metrics = methods["old_hybrid_baseline"]["metrics"]
+    new_metrics = methods["hybrid"]["metrics"]
+    metric_changes = {
+        name: new_metrics[name] - old_metrics[name]
+        for name in ("high_risk_precision_proxy", "high_risk_recall_proxy", "f1_proxy", "false_positive_proxy")
     }
     scenario_metrics = {}
     for name, group in data.groupby("evaluation_scenario", sort=True):
@@ -120,6 +135,8 @@ def evaluate() -> dict:
             "ml_median_score": statistics.median(ml_scores[data.index.get_loc(index)] for index in indices),
             "hybrid_median_score": statistics.median(hybrid_scores[data.index.get_loc(index)] for index in indices),
             "hybrid_high_risk_rate": sum(predictions["hybrid"][data.index.get_loc(index)] for index in indices) / len(indices),
+            "old_hybrid_median_score": statistics.median(old_hybrid_scores[data.index.get_loc(index)] for index in indices),
+            "old_hybrid_high_risk_rate": sum(predictions["old_hybrid_baseline"][data.index.get_loc(index)] for index in indices) / len(indices),
         }
 
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -139,6 +156,7 @@ def evaluate() -> dict:
                 "risk_band": result["risk_band"], "recommended_action": result["recommended_action"],
                 "reason_codes": result["reason_codes"], "explanation": result["explanation"],
                 "rules_score": result["rule_score"], "ml_score": result["ml_score"], "ml_status": result["ml_status"],
+                "model_version": result["model_version"], "hybrid_policy_version": result["hybrid_policy_version"],
                 "latency_ms": result["latency_ms"], "decision_persisted": decision is not None,
                 "transaction_persisted": transaction is not None, "triggered_signals_persisted": signal_count,
                 "audit_persisted": audit is not None, "case_id": case.case_id if case else None,
@@ -154,10 +172,17 @@ def evaluate() -> dict:
         "dataset_version": registry.training_dataset_version,
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "model_version": registry.model_version,
+        "hybrid_policy_version": registry.policy_version,
+        "old_hybrid_policy_version": "hybrid-policy-v1.0.0",
+        "calibration_method": registry.calibration_method,
+        "calibration_tail_cutoff": registry.calibration_tail_cutoff,
+        "training_split_version": registry.training_split_version,
+        "hybrid_weights": {"rules": registry.rule_score_weight, "ml": registry.ml_score_weight},
         "records": len(labels), "normal_records": normal_count, "synthetic_high_risk_records": sum(labels),
         "scenario_coverage": positive_scenarios, "scenario_coverage_count": len(positive_scenarios),
         "classification_threshold_definition": "risk score >= 60 is high risk; ML-only uses configured ML score threshold",
         "methods": methods,
+        "hybrid_metric_changes_vs_retrained_old_policy": metric_changes,
         "ml_inference_latency_ms": {"mean": statistics.mean(ml_times), "median": statistics.median(ml_times)},
         "by_scenario": scenario_metrics,
         "api_scenario_runs": scenario_runs,

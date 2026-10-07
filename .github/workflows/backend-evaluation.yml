@@ -44,6 +44,9 @@ jobs:
       - name: Seed isolated SQLite database
         run: python scripts/seed_database.py
 
+      - name: Calibrate hybrid policy on validation split
+        run: python scripts/calibrate_policy.py
+
       - name: Train Isolation Forest
         run: python scripts/train_model.py
 
@@ -55,12 +58,15 @@ jobs:
 
       - name: Print evaluation summary
         run: >-
-          python -c "import json; r=json.load(open('data/generated/evaluation_report.json', encoding='utf-8')); print(json.dumps({'model_version': r['model_version'], 'dataset_version': r['dataset_version'], 'records': r['records'], 'methods': r['methods'], 'scenario_coverage': r['scenario_coverage']}, indent=2))"
+          python -c "import json; r=json.load(open('data/generated/evaluation_report.json', encoding='utf-8')); print(json.dumps({'model_version': r['model_version'], 'hybrid_policy_version': r['hybrid_policy_version'], 'dataset_version': r['dataset_version'], 'records': r['records'], 'methods': r['methods'], 'metric_changes': r['hybrid_metric_changes_vs_retrained_old_policy'], 'scenario_coverage': r['scenario_coverage']}, indent=2))"
 
       - name: Upload evaluation report
         uses: actions/upload-artifact@v4
         with:
           name: trustsentinel-backend-evaluation
-          path: backend/data/generated/evaluation_report.json
+          path: |
+            backend/data/generated/evaluation_report.json
+            backend/data/generated/calibration_validation_report.json
+            backend/data/generated/calibration_selection.json
           if-no-files-found: error
           retention-days: 14

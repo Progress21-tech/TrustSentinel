@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     database_url: str = "sqlite:///./trustsentinel.db"
     model_path: str = "models/isolation_forest_v1.joblib"
-    model_version: str = "iforest-v1.0.0"
+    model_version: str = "iforest-v1.1.0"
     ml_n_estimators: int = Field(default=200, ge=10, le=2000)
     ml_random_state: int = 2026
     ml_contamination: str = "auto"

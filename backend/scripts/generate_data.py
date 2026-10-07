@@ -87,11 +87,19 @@ def generate(seed: int = 2026, output: Path | None = None, transactions: int = 1
             "synthetic_label": int(scenario in {"new_beneficiary_abnormal_amount", "new_device_high_value", "rapid_transfers_new_beneficiary", "risky_beneficiary_network", "account_recovery_new_beneficiary", "combined_high_risk"})})
     rng.shuffle(txns)
     for index, row in enumerate(txns):
-        row["dataset_split"] = "test" if index % 5 == 0 else "train"
+        # Preserve the existing every-fifth held-out test membership exactly;
+        # use one fifth of the former training rows as validation.
+        row["dataset_split"] = split_name(index)
         row["dataset_seed"] = seed
     for name, rows in [("customers.csv", customers), ("accounts.csv", accounts), ("devices.csv", devices), ("beneficiaries.csv", beneficiaries), ("transactions.csv", txns)]:
         pd.DataFrame(rows).to_csv(out / name, index=False)
     return out
+
+
+def split_name(index: int) -> str:
+    if index % 5 == 0:
+        return "test"
+    return "validation" if index % 5 == 1 else "train"
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

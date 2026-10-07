@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -6,6 +8,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.config import settings
 from app.core.security import require_api_key
 from app.db.database import Base, get_db
+from app.db.models import Account, Beneficiary, Customer, Device
 from app.main import app
 
 
@@ -62,3 +65,49 @@ def test_protected_scenario_requires_configured_key_and_allows_valid_key(monkeyp
 def test_empty_configured_secret_preserves_open_access(monkeypatch):
     monkeypatch.setattr(settings, "api_key_secret", "")
     assert require_api_key(None) is None
+
+
+def test_protected_risk_score_route_persists_existing_contract(monkeypatch):
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+
+    def override_get_db():
+        session = session_factory()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    now = datetime.now(timezone.utc)
+    with session_factory() as session:
+        session.add(Customer(customer_id="api-test-customer", risk_profile="NORMAL"))
+        session.flush()
+        session.add(Account(account_id="api-test-account", customer_id="api-test-customer",
+            created_at=now - timedelta(days=365)))
+        session.add(Beneficiary(beneficiary_id="api-test-beneficiary", first_seen_at=now - timedelta(days=30)))
+        session.add(Device(device_id="api-test-device", account_id="api-test-account",
+            first_seen_at=now - timedelta(days=30), risk_flags=[]))
+        session.commit()
+
+    app.dependency_overrides[get_db] = override_get_db
+    monkeypatch.setattr(settings, "api_key_secret", "risk-route-test-key")
+    try:
+        with TestClient(app) as client:
+            response = client.post("/v1/risk/score", json={
+                "transaction_id": "api-test-transaction", "account_id": "api-test-account",
+                "amount": 50000, "currency": "NGN", "beneficiary_id": "api-test-beneficiary",
+                "device_id": "api-test-device", "channel": "mobile_app",
+            }, headers={"X-API-Key": "risk-route-test-key"})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["transaction_id"] == "api-test-transaction"
+        assert 0 <= payload["risk_score"] <= 100
+        assert payload["risk_band"]
+        assert payload["recommended_action"]
+        assert payload["model_version"]
+        assert payload["hybrid_policy_version"]
+        assert payload["feature_schema_version"] == "trustsentinel-context-v1"
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        engine.dispose()

@@ -20,7 +20,7 @@ def readiness():
     try:
         with engine.connect() as connection: connection.execute(text("SELECT 1"))
         return {"status": "ready", "database": "available", "ml_status": "available" if registry.is_available else "unavailable_rules_only",
-            "model_version": registry.model_version}
+            "model_version": registry.model_version, "hybrid_policy_version": registry.policy_version if registry.is_available else "rules-only"}
     except Exception:
         from fastapi import HTTPException
         raise HTTPException(status_code=503, detail={"error": {"code": "NOT_READY", "message": "A required dependency is unavailable."}})
