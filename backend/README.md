@@ -5,6 +5,7 @@ TrustSentinel is a synthetic-data prototype for identifying contextual indicator
 ## Run locally
 
 Requires Python 3.11+. By default, local development uses SQLite so the demo starts without an external database. Set `DATABASE_URL` to a PostgreSQL SQLAlchemy URL for PostgreSQL (for example `postgresql+psycopg://user:password@host:5432/dbname`).
+Run commands in this document from the `backend/` directory.
 
 ```powershell
 python -m venv .venv
@@ -15,6 +16,16 @@ uvicorn app.main:app --reload
 ```
 
 Open `http://127.0.0.1:8000/docs`. `/health` is liveness; `/ready` checks the database and reports whether ML is loaded. When `API_KEY_SECRET` is configured, send it as `X-API-Key` to the protected `/v1` endpoints. Leave it empty only for local development.
+
+The environment template is [`.env.example`](.env.example). Copy it to `.env` and adjust `DATABASE_URL`, `API_KEY_SECRET`, `CORS_ORIGINS`, `MODEL_PATH`, and the scoring/model settings as needed. Do not commit `.env` or put real secrets in the template.
+
+## Tests
+
+Install the development dependencies and run the suite from `backend/`:
+
+```powershell
+python -m pytest
+```
 
 ## Demo flow
 
@@ -88,9 +99,20 @@ The application also creates missing tables on startup to keep the MVP demo simp
 
 Swagger/OpenAPI is available at `/docs`. See [`docs/api.md`](docs/api.md), [`docs/risk_signals.md`](docs/risk_signals.md), and [`docs/feature_dictionary.md`](docs/feature_dictionary.md).
 
+## Docker
+
+Build with the backend directory as the Docker build context, then run the image:
+
+```powershell
+docker build -t trustsentinel-api .
+docker run --rm -p 8000:8000 --env-file .env trustsentinel-api
+```
+
+The Dockerfile installs `backend/requirements.txt`, trains the synthetic model during image build, and starts the existing FastAPI entrypoint. Run these commands from `backend/`.
+
 ## Deployment
 
-`render.yaml` defines the Render web service and managed PostgreSQL database. Its build command trains the synthetic Isolation Forest offline; the API does not train at startup or while handling requests. Set `API_KEY_SECRET` in Render. Configure allowed browser origins with `CORS_ORIGINS`. HTTPS is provided by Render's service endpoint. The MVP includes a per-process IP rate limit, but it is not a distributed limiter. It does not implement user login or role-based dashboard access.
+The repository-root `render.yaml` sets `rootDir: backend` and defines the Render web service and managed PostgreSQL database. Its build command trains the synthetic Isolation Forest offline; the API does not train at startup or while handling requests. Set `API_KEY_SECRET` in Render. Configure allowed browser origins with `CORS_ORIGINS`. HTTPS is provided by Render's service endpoint. The MVP includes a per-process IP rate limit, but it is not a distributed limiter. It does not implement user login or role-based dashboard access.
 
 ## Prototype scoring assumptions
 
