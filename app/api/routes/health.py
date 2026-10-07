@@ -19,7 +19,8 @@ def readiness():
         raise HTTPException(status_code=503, detail={"error": {"code": "MODEL_UNAVAILABLE", "message": "The configured policy requires the ML model."}})
     try:
         with engine.connect() as connection: connection.execute(text("SELECT 1"))
-        return {"status": "ready", "database": "available", "ml_status": "available" if registry.model is not None else "unavailable_rules_only"}
+        return {"status": "ready", "database": "available", "ml_status": "available" if registry.is_available else "unavailable_rules_only",
+            "model_version": registry.model_version}
     except Exception:
         from fastapi import HTTPException
         raise HTTPException(status_code=503, detail={"error": {"code": "NOT_READY", "message": "A required dependency is unavailable."}})

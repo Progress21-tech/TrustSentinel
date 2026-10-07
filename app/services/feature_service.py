@@ -4,6 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Account, Beneficiary, Device, Transaction
+from app.ml.features import build_ml_features
 
 
 def _aware(value: datetime | None) -> datetime | None:
@@ -29,7 +30,7 @@ def extract_features(db: Session, account: Account, amount: float, beneficiary_i
     dev_age = max(0, (at - (_aware(device.first_seen_at) or at)).days) if device else 0
     deviation = amount / max(average, 1.0)
     ben_risk = float(ben.risk_score if ben else 0)
-    return {
+    context = {
         "amount": amount, "log_amount": math.log1p(amount), "transaction_hour": at.hour, "transaction_day": at.weekday(),
         "average_transaction_amount": average, "median_transaction_amount": sorted(amounts)[len(amounts)//2] if amounts else average,
         "max_transaction_amount": max(amounts, default=0), "transaction_count_30m": len(recent_30), "transaction_count_24h": len(recent),
@@ -45,3 +46,6 @@ def extract_features(db: Session, account: Account, amount: float, beneficiary_i
         "linked_risky_beneficiaries": int(ben_risk >= 60), "beneficiary_in_degree": 0, "beneficiary_out_degree": 0,
         "network_risk_score": ben_risk,
     }
+    # One canonical builder also feeds offline training and evaluation.
+    context.update(build_ml_features(context))
+    return context

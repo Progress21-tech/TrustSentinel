@@ -7,5 +7,6 @@ __pycache__/
 htmlcov/
 *.joblib
 data/generated/
+data/synthetic/
 *.sqlite3
 implementationprd.md

@@ -45,7 +45,27 @@ python scripts/train_model.py
 python scripts/evaluate_model.py
 ```
 
-Generation is seeded and writes linked entities plus at least 10,000 transactions under `data/synthetic/`. The database seed is idempotent and skips a non-empty customer database. Train the Isolation Forest offline; the API never trains during startup or requests. The generated artifact is ignored by Git. Until an artifact exists or if loading/inference fails, scoring explicitly returns `ml_status: unavailable` and uses the rules-only score.
+Generation is seeded and writes linked entities plus at least 10,000 transactions under `data/synthetic/`. The database seed is idempotent and skips a non-empty customer database. Train the Isolation Forest offline; the API never trains during startup or requests. The generated artifact is ignored by Git. Until an artifact exists or if loading/inference fails, scoring explicitly returns `ml_status: unavailable_rules_only` and uses the rules-only score.
+
+### ML scoring details
+
+The model is an **Isolation Forest**, a lightweight unsupervised anomaly detector suited to a synthetic prototype where labelled examples are limited. It learns only background rows from the reproducible training split. Scenario names, split markers, and labels are never features. The persisted sklearn pipeline applies `StandardScaler` before Isolation Forest inference.
+
+The canonical feature builder is [`app/ml/features.py`](app/ml/features.py), used by synthetic generation, training, evaluation, and live feature extraction. The ordered feature schema (`trustsentinel-context-v1`) includes log amount and amount deviation, transaction hour and time deviation, 30m/24h velocity, beneficiary age/risk/history, device age/newness/change, recent recovery/reset flags, synthetic session proxies, linked-risk counts, beneficiary network degrees/risk, account age, and average daily activity. Values are numeric, finite, bounded where appropriate, and missing fields have explicit defaults.
+
+Training uses the normal/background portion of the train split and a fixed random seed. Defaults are 200 estimators, `max_samples=auto`, `contamination=auto`, and `max_features=1.0`; `ML_N_ESTIMATORS`, `ML_RANDOM_STATE`, `ML_MAX_SAMPLES`, `ML_CONTAMINATION`, and `ML_MAX_FEATURES` configure the prototype. The model is written to `models/isolation_forest_v1.joblib` (or `MODEL_PATH`), tagged `iforest-v1.0.0`, and includes the dataset seed/version, exact feature ordering/version, training configuration, and calibration reference. The model is generated during setup/deployment build rather than committed.
+
+Isolation Forest's raw `decision_function` is calibrated against sorted scores from the train-normal rows: `ml_score = 1 - empirical_percentile(raw_score)`. Lower raw scores are more anomalous, so the resulting risk contribution is deterministic and bounded to `[0, 1]`; values at or below the training reference minimum approach 1.0. With default weights, `hybrid_score = 0.70 * rule_score + 0.30 * (ml_score * 100)`, clamped to 0–100. Configured weights are normalized by their sum. The ML score does not set the action directly; the existing risk-band policy does.
+
+If the artifact is missing, incompatible, or inference fails, the API explicitly returns `ml_score: null`, `ml_status: unavailable_rules_only`, and `model_version: rules-only` when `RULES_ONLY_FALLBACK=true`. With fallback disabled, scoring returns 503. When active, the response includes the loaded model version and `feature_schema_version`. `ML_ANOMALY_REASON_THRESHOLD` controls when the calibrated tail is recorded as an evidence signal; the model never creates free-form explanations.
+
+Run `python scripts/evaluate_model.py` after training to compare **rules-only**, **ML-only**, and **hybrid** predictions on the same held-out synthetic set. It prints sample counts, precision/recall/F1 and false-positive proxies, confusion counts, per-scenario scores, scenario coverage, and model inference latency; it writes `data/generated/evaluation_report.json`. It also runs the deterministic scenarios through the same risk service and checks stored decisions, signals, cases, and audit events. Two legitimate high-value variations are included in the evaluation dataset.
+
+No numeric evaluation results are recorded for this workspace yet: Python and pytest could not be launched here (only the unconfigured Windows Store alias was found). Generate/training/evaluation and scenario test results must be produced locally using the commands above; no metric is claimed as passed. Results remain synthetic proxies and are not evidence of production fraud-detection accuracy on Nigerian financial institution data.
+
+Known data limitation: the synthetic generator can include session and network context, while the current live extractor has only partial session/network context and supplies documented defaults for fields it cannot observe. This can create train/live feature shift. Validate those fields against real, approved backend signals before using model scores beyond this prototype.
+
+The frontend should display the backend's `risk_score`, `risk_band`, `recommended_action`, `reason_codes`, and `explanation`; it must not repeat feature engineering or scoring. The API reports actual rule and ML contributions, but the recommendation remains the backend policy result.
 
 ## Database migrations
 

@@ -1,7 +1,11 @@
 """Load the generated synthetic CSV dataset into the configured database."""
 from pathlib import Path
+import sys
 import json
 import pandas as pd
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 from sqlalchemy import select
 from app.db.database import Base, SessionLocal, engine
 from app.db.models import Account, Beneficiary, Customer, Device, Transaction
@@ -9,7 +13,7 @@ from scripts.generate_data import generate
 
 def seed():
     Base.metadata.create_all(bind=engine)
-    folder = Path(__file__).resolve().parents[1] / "data" / "synthetic"
+    folder = ROOT / "data" / "synthetic"
     if not (folder / "transactions.csv").exists(): generate(output=folder)
     db = SessionLocal()
     try:
@@ -29,7 +33,8 @@ def seed():
         for row in pd.read_csv(folder / "beneficiaries.csv").to_dict("records"):
             db.add(Beneficiary(**row))
         db.flush()
-        rows = pd.read_csv(folder / "transactions.csv").drop(columns=["synthetic_label"]).to_dict("records")
+        transaction_columns = ["transaction_id", "account_id", "beneficiary_id", "device_id", "amount", "currency", "channel", "timestamp"]
+        rows = pd.read_csv(folder / "transactions.csv")[transaction_columns].to_dict("records")
         for row in rows:
             row["timestamp"] = pd.Timestamp(row["timestamp"]).to_pydatetime()
             db.add(Transaction(**row))

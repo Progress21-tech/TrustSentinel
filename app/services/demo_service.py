@@ -6,6 +6,8 @@ from app.db.models import Account, Beneficiary, Customer, Device, Transaction
 from app.schemas.risk import RiskRequest
 from app.services.risk_service import score_transaction
 
+DEMO_AT = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+
 SCENARIOS = {
     "normal": ("DEMO-NORMAL-001", "acct-demo-normal", 45000, False, False, False, False, 0),
     "new_beneficiary_large_amount": ("DEMO-NEW-BENEFICIARY-001", "acct-demo-new-ben", 850000, True, False, False, False, 0),
@@ -22,7 +24,7 @@ def _ensure_scenario(db: Session, scenario: str):
     txn_id, account_id, amount, new_ben, new_device, recovery, risky, velocity = SCENARIOS[scenario]
     customer_id = f"customer-{account_id}"
     customer = db.scalar(select(Customer).where(Customer.customer_id == customer_id))
-    now = datetime.now(timezone.utc)
+    now = DEMO_AT
     if customer is None:
         customer = Customer(customer_id=customer_id, risk_profile="HIGH_VALUE" if scenario == "legitimate_high_value" else "NORMAL")
         db.add(customer); db.flush()
@@ -59,4 +61,4 @@ def _ensure_scenario(db: Session, scenario: str):
 def run_scenario(db: Session, scenario: str) -> dict:
     txn_id, account_id, amount, ben_id, dev_id, recovery = _ensure_scenario(db, scenario)
     return score_transaction(db, RiskRequest(transaction_id=txn_id, account_id=account_id, amount=amount,
-        currency="NGN", beneficiary_id=ben_id, device_id=dev_id, channel="mobile_app"))
+        currency="NGN", beneficiary_id=ben_id, device_id=dev_id, channel="mobile_app", timestamp=DEMO_AT))

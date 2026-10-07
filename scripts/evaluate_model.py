@@ -1,49 +1,174 @@
-"""Report synthetic anomaly metrics and deterministic scenario outcomes."""
+"""Compare rules-only, ML-only and hybrid scores on one deterministic held-out set."""
+from __future__ import annotations
+
+import json
+import statistics
+import sys
+import time
 from pathlib import Path
-import joblib
-import numpy as np
+
 import pandas as pd
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
-from app.db.database import Base, SessionLocal, engine
-from app.services.demo_service import SCENARIOS, run_scenario
+from sqlalchemy import select
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 from app.core.config import settings
-from app.ml.features import FEATURES
+from app.db.database import Base
+from app.db.models import AuditLog, Case, RiskDecision, RiskSignal, Transaction
+from app.ml.features import FEATURES, FEATURE_SCHEMA_VERSION, build_ml_features, vector
+from app.ml.predict import ModelRegistry, registry
+from app.risk_engine.rules import action_for, evaluate_signals, risk_band, score_rules
+from app.risk_engine.scorer import hybrid_score
+from app.services.demo_service import run_scenario
 from scripts.generate_data import generate
 
-EXPECTED = {"normal": "LOW", "new_beneficiary_large_amount": "ELEVATED", "new_device_large_transfer": "HIGH",
-    "account_recovery_new_beneficiary": "CRITICAL", "rapid_transfers": "HIGH", "risky_beneficiary": "HIGH", "combined_high_risk": "CRITICAL", "legitimate_high_value": "LOW"}
+SCENARIOS = (
+    "new_beneficiary_large_amount",
+    "new_device_large_transfer",
+    "rapid_transfers",
+    "risky_beneficiary",
+    "account_recovery_new_beneficiary",
+    "combined_high_risk",
+    "normal",
+    "legitimate_high_value",
+)
 
-def evaluate():
-    data_dir = Path(__file__).resolve().parents[1] / "data" / "synthetic"
-    if not (data_dir / "transactions.csv").exists(): generate(output=data_dir)
-    data = pd.read_csv(data_dir / "transactions.csv")
-    customers = pd.read_csv(data_dir / "customers.csv")
-    profiles = customers["risk_profile"].tolist()
-    typical = {"NORMAL": 45000, "BUSINESS": 350000, "HIGH_VALUE": 1_500_000, "SUSPICIOUS": 90000}
-    matrix = []
-    for row in data.itertuples(index=False):
-        account_index = int(row.account_id.split("-")[1])
-        baseline = typical[profiles[account_index]]
-        matrix.append([np.log1p(row.amount), min(row.amount / baseline, 1000), 0, 2, 100, 0, 100, 0, 0, 0, 5, 0])
-    artifact = Path(settings.model_path)
-    if not artifact.exists():
-        print("ML metrics unavailable: train the model with python scripts/train_model.py first.")
-    else:
-        loaded = joblib.load(artifact)
-        model = loaded.get("model") if isinstance(loaded, dict) else loaded
-        prediction = (model.predict(np.asarray(matrix)) == -1).astype(int)
-        labels = data["synthetic_label"].astype(int).to_numpy()
-        tn, fp, fn, tp = confusion_matrix(labels, prediction, labels=[0, 1]).ravel()
-        print("Synthetic-only anomaly evaluation (prototype labels, not real-world performance):")
-        print(f"accuracy={accuracy_score(labels, prediction):.4f} precision={precision_score(labels, prediction, zero_division=0):.4f} recall={recall_score(labels, prediction, zero_division=0):.4f} f1={f1_score(labels, prediction, zero_division=0):.4f}")
-        print(f"false_positive_rate={fp / max(1, fp + tn):.4f} confusion_matrix=[[{tn}, {fp}], [{fn}, {tp}]]")
-    Base.metadata.create_all(bind=engine)
-    db = SessionLocal()
+
+def _confusion(labels: list[int], predictions: list[int]) -> dict:
+    tp = sum(y == 1 and p == 1 for y, p in zip(labels, predictions))
+    fp = sum(y == 0 and p == 1 for y, p in zip(labels, predictions))
+    tn = sum(y == 0 and p == 0 for y, p in zip(labels, predictions))
+    fn = sum(y == 1 and p == 0 for y, p in zip(labels, predictions))
+    precision = tp / max(1, tp + fp)
+    recall = tp / max(1, tp + fn)
+    return {
+        "tp": tp, "fp": fp, "tn": tn, "fn": fn,
+        "accuracy": (tp + tn) / max(1, tp + tn + fp + fn),
+        "high_risk_precision_proxy": precision,
+        "high_risk_recall_proxy": recall,
+        "f1_proxy": 2 * precision * recall / max(1e-12, precision + recall),
+        "false_positive_proxy": fp / max(1, fp + tn),
+    }
+
+
+def _evaluation_set(path: Path) -> pd.DataFrame:
     try:
-        print("Scenario report (synthetic; PRD expected bands are shown for review against configured weights):")
-        for name, expected in EXPECTED.items():
-            result = run_scenario(db, name)
-            print(f"{name:38} expected={expected:10} actual={result['risk_band']:10} score={result['risk_score']:5.1f} {'PASS' if result['risk_band'] == expected else 'REVIEW'}")
-    finally: db.close()
+        expected_seed = int(registry.training_dataset_version.rsplit("-seed-", 1)[1])
+    except (AttributeError, IndexError, ValueError):
+        raise ValueError("Model artifact is missing its synthetic dataset seed/version.")
+    if not path.exists():
+        generate(seed=expected_seed)
+    data = pd.read_csv(path)
+    required = {"dataset_split", "synthetic_label", "evaluation_scenario", "dataset_seed", "amount"}
+    if not required.issubset(data.columns):
+        raise ValueError("Evaluation dataset schema is stale; run python scripts/generate_data.py first.")
+    held_out = data[data["dataset_split"] == "test"].copy()
+    if held_out.empty:
+        raise ValueError("The deterministic held-out test split is empty.")
+    seeds = data["dataset_seed"].dropna().unique().tolist()
+    if seeds != [expected_seed]:
+        raise ValueError(f"Evaluation data seed {seeds} does not match model dataset {registry.training_dataset_version}; regenerate and retrain together.")
+    return held_out
 
-if __name__ == "__main__": evaluate()
+
+def evaluate() -> dict:
+    artifact_path = Path(settings.model_path)
+    if not artifact_path.is_absolute():
+        artifact_path = ROOT / artifact_path
+    if not artifact_path.is_file() or not registry.is_available:
+        raise RuntimeError("A calibrated model artifact is required; run python scripts/train_model.py first.")
+    data = _evaluation_set(ROOT / "data" / "synthetic" / "transactions.csv")
+    labels = [int(value) for value in data["synthetic_label"].tolist()]
+
+    rule_scores, ml_scores, hybrid_scores, ml_times = [], [], [], []
+    for record in data.to_dict("records"):
+        features = build_ml_features(record)
+        # vector() applies the same named schema and order used by online inference.
+        if len(vector(features)) != len(FEATURES):
+            raise ValueError("Feature vector length drift detected.")
+        rule_score = score_rules(evaluate_signals(features))
+        started = time.perf_counter()
+        ml_score = registry.predict(features)
+        ml_times.append((time.perf_counter() - started) * 1000)
+        if ml_score is None:
+            raise RuntimeError("ML inference failed while evaluating the held-out dataset.")
+        rule_scores.append(rule_score)
+        ml_scores.append(ml_score * 100.0)
+        hybrid_scores.append(hybrid_score(rule_score, ml_score, settings.rule_score_weight, settings.ml_score_weight))
+
+    predictions = {
+        "rules_only": [int(score >= 60) for score in rule_scores],
+        "ml_only": [int(score >= settings.ml_high_risk_threshold * 100) for score in ml_scores],
+        "hybrid": [int(score >= 60) for score in hybrid_scores],
+    }
+    methods = {
+        "rules_only": {"threshold": 60, "metrics": _confusion(labels, predictions["rules_only"])},
+        "ml_only": {"threshold": settings.ml_high_risk_threshold * 100, "metrics": _confusion(labels, predictions["ml_only"])},
+        "hybrid": {"threshold": 60, "metrics": _confusion(labels, predictions["hybrid"])},
+    }
+    scenario_metrics = {}
+    for name, group in data.groupby("evaluation_scenario", sort=True):
+        indices = group.index.tolist()
+        scenario_metrics[str(name)] = {
+            "records": len(group),
+            "synthetic_high_risk_records": int(group["synthetic_label"].sum()),
+            "rules_median_score": statistics.median(rule_scores[data.index.get_loc(index)] for index in indices),
+            "ml_median_score": statistics.median(ml_scores[data.index.get_loc(index)] for index in indices),
+            "hybrid_median_score": statistics.median(hybrid_scores[data.index.get_loc(index)] for index in indices),
+            "hybrid_high_risk_rate": sum(predictions["hybrid"][data.index.get_loc(index)] for index in indices) / len(indices),
+        }
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, expire_on_commit=False)()
+    scenario_runs = []
+    try:
+        for name in SCENARIOS:
+            result = run_scenario(session, name)
+            transaction = session.scalar(select(Transaction).where(Transaction.transaction_id == result["transaction_id"]))
+            decision = session.scalar(select(RiskDecision).where(RiskDecision.transaction_id == result["transaction_id"]))
+            signal_count = len(list(session.scalars(select(RiskSignal).where(RiskSignal.transaction_id == result["transaction_id"]))))
+            audit = session.scalar(select(AuditLog).where(AuditLog.entity_id == (decision.decision_id if decision else "")))
+            case = session.scalar(select(Case).where(Case.transaction_id == result["transaction_id"]))
+            scenario_runs.append({
+                "scenario": name, "transaction_id": result["transaction_id"], "risk_score": result["risk_score"],
+                "risk_band": result["risk_band"], "recommended_action": result["recommended_action"],
+                "reason_codes": result["reason_codes"], "explanation": result["explanation"],
+                "rules_score": result["rule_score"], "ml_score": result["ml_score"], "ml_status": result["ml_status"],
+                "latency_ms": result["latency_ms"], "decision_persisted": decision is not None,
+                "transaction_persisted": transaction is not None, "triggered_signals_persisted": signal_count,
+                "audit_persisted": audit is not None, "case_id": case.case_id if case else None,
+            })
+    finally:
+        session.close()
+        engine.dispose()
+
+    normal_count = len(labels) - sum(labels)
+    positive_scenarios = sorted(data.loc[data["synthetic_label"] == 1, "evaluation_scenario"].astype(str).unique().tolist())
+    report = {
+        "evaluation_type": "synthetic prototype only; not real-world fraud performance",
+        "dataset_version": registry.training_dataset_version,
+        "feature_schema_version": FEATURE_SCHEMA_VERSION,
+        "model_version": registry.model_version,
+        "records": len(labels), "normal_records": normal_count, "synthetic_high_risk_records": sum(labels),
+        "scenario_coverage": positive_scenarios, "scenario_coverage_count": len(positive_scenarios),
+        "classification_threshold_definition": "risk score >= 60 is high risk; ML-only uses configured ML score threshold",
+        "methods": methods,
+        "ml_inference_latency_ms": {"mean": statistics.mean(ml_times), "median": statistics.median(ml_times)},
+        "by_scenario": scenario_metrics,
+        "api_scenario_runs": scenario_runs,
+    }
+    output = ROOT / "data" / "generated" / "evaluation_report.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    print(json.dumps(report, indent=2))
+    print(f"Saved evaluation report to {output}")
+    return report
+
+
+if __name__ == "__main__":
+    evaluate()
