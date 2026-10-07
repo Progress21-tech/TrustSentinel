@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: trustsentinel-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt && python scripts/train_model.py
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: trustsentinel-db
+          property: connectionString
+      - key: API_KEY_SECRET
+        sync: false
+databases:
+  - name: trustsentinel-db
+    databaseName: trustsentinel
+    user: trustsentinel
