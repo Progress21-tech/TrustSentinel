@@ -10,3 +10,5 @@ htmlcov/
 **/data/synthetic/
 *.sqlite3
 implementationprd.md
+
+.env.local
