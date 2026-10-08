@@ -115,7 +115,13 @@ The Dockerfile installs `backend/requirements.txt`, trains the synthetic model d
 
 ## Deployment
 
-The repository-root `render.yaml` sets `rootDir: backend` and defines the Render web service and managed PostgreSQL database. Its build command trains the synthetic Isolation Forest offline; the API does not train at startup or while handling requests. Set `API_KEY_SECRET` in Render. Configure allowed browser origins with `CORS_ORIGINS`. HTTPS is provided by Render's service endpoint. The MVP includes a per-process IP rate limit, but it is not a distributed limiter. It does not implement user login or role-based dashboard access.
+The repository-root `render.yaml` sets `rootDir: backend` and defines the Render web service and managed PostgreSQL database. Its build command trains the synthetic Isolation Forest offline; the API does not train at startup or while handling requests. Configure API, analyst-session and analyst-credential secrets in Render. Configure allowed browser origins with `CORS_ORIGINS`. HTTPS is provided by Render's service endpoint. The MVP includes a per-process IP rate limit, but it is not a distributed limiter or multi-user role system.
+
+## Analyst sign-in
+
+The frontend signs in through `POST /v1/auth/login`. Configure `ANALYST_EMAIL`, `ANALYST_PASSWORD_HASH`, and a randomly generated `SESSION_SIGNING_SECRET` of at least 32 characters in the backend environment. Create a password hash with `python scripts/hash_analyst_password.py`; store only the printed PBKDF2-SHA256 hash in the environment. Generate the signing secret with `python -c "import secrets; print(secrets.token_urlsafe(48))"`. The API issues an HMAC-signed bearer session that expires after eight hours. `GET /v1/auth/session` validates it. Sign-out clears the browser-held session; sessions expire at the API after the configured lifetime. Existing `X-API-Key` access remains available for backend integrations.
+
+The authenticated frontend also uses `GET /v1/transactions`, `GET /v1/audit`, and the existing case and metrics routes. CORS must allow the deployed frontend origin via `CORS_ORIGINS`. Set the frontend build variable `NEXT_PUBLIC_API_BASE_URL` to the backend origin. Do not set an API key in the frontend.
 
 ## Prototype scoring assumptions
 

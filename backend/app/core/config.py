@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     cors_origins: str = "http://localhost:3000"
     api_key_secret: str = ""
+    session_signing_secret: str = ""
+    analyst_email: str = ""
+    analyst_password_hash: str = ""
     rate_limit_per_minute: int = 120
     rules_only_fallback: bool = True
     rule_score_weight: float = Field(default=0.7, ge=0)

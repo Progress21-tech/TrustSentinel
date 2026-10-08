@@ -1,258 +1,46 @@
+import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
-import { useState } from "react";
 import Sidebar from "../../../components/layout/Sidebar";
-import {
-  ArrowLeft,
-  ShieldAlert,
-  CheckCircle2,
-  XCircle,
-  Clock3,
-  UserRound,
-} from "lucide-react";
+import { getCase, getSession, updateCaseOutcome, type CaseRecord } from "../../../lib/api";
+import { ArrowLeft, CheckCircle2, ShieldAlert } from "lucide-react";
+
+const outcomes = [
+  { value: "CONFIRMED_SCAM", label: "Confirm scam" },
+  { value: "LEGITIMATE", label: "Mark legitimate" },
+  { value: "NEEDS_REVIEW", label: "Needs review" },
+  { value: "ESCALATED", label: "Escalate" },
+] as const;
 
 export default function CaseDetail() {
   const router = useRouter();
-  const { id } = router.query;
-
-  const [status, setStatus] = useState("OPEN");
-  const [outcome, setOutcome] = useState("PENDING");
+  const caseId = typeof router.query.id === "string" ? router.query.id : "";
+  const [item, setItem] = useState<CaseRecord | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [notes, setNotes] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => { if (!caseId) return; getCase(caseId).then((result) => { setItem(result); setNotes(result.notes ?? ""); }).catch((reason) => setError(reason instanceof Error ? reason.message : "Unable to load case.")).finally(() => setLoading(false)); }, [caseId]);
 
-  function handleOutcome(nextOutcome: string) {
-    setOutcome(nextOutcome);
-    setStatus("CLOSED");
+  async function recordOutcome(outcome: typeof outcomes[number]["value"]) {
+    if (!item) return;
+    setSaving(true); setError("");
+    try {
+      const user = await getSession();
+      setItem(await updateCaseOutcome(item.case_id, { outcome, notes, analyst_id: user.email }));
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to save case outcome."); }
+    finally { setSaving(false); }
   }
 
-  return (
-    <div>
-      <Sidebar />
-
-      <main className="main-content">
-        <Link href="/dashboard/cases" className="back-link">
-          <ArrowLeft size={15} />
-          Back to Cases
-        </Link>
-
-        <div className="page-header">
-          <div>
-            <div className="eyebrow">CASE INVESTIGATION</div>
-            <h1>{id || "case_00421"}</h1>
-            <p>Analyst review of a synthetic high-risk transaction.</p>
-          </div>
-
-          <div className="status-pill">
-            <span />
-            SYNTHETIC DATA
-          </div>
-        </div>
-
-        <section className="case-summary-grid">
-          <div className="card">
-            <span className="detail-label">Transaction</span>
-            <strong>txn_00841</strong>
-          </div>
-
-          <div className="card">
-            <span className="detail-label">Risk Score</span>
-            <strong className="case-score">91</strong>
-          </div>
-
-          <div className="card">
-            <span className="detail-label">Risk Band</span>
-            <strong className="critical-text">CRITICAL</strong>
-          </div>
-
-          <div className="card">
-            <span className="detail-label">Action</span>
-            <strong className="hold-text">HOLD</strong>
-          </div>
-        </section>
-
-        <div className="case-detail-grid">
-          <section className="card">
-            <div className="section-heading">
-              <div>
-                <h2>Risk Evidence</h2>
-                <p>Signals returned by the TrustSentinel risk engine.</p>
-              </div>
-            </div>
-
-            <div className="assessment-banner">
-              <ShieldAlert size={22} />
-
-              <div>
-                <strong>Multiple high-risk indicators detected</strong>
-                <p>
-                  Payment shows multiple signals associated with
-                  social-engineering risk.
-                </p>
-              </div>
-            </div>
-
-            <div className="case-evidence-grid">
-              <div>
-                <span>NEW_BENEFICIARY</span>
-                <p>Beneficiary is new to the customer.</p>
-              </div>
-
-              <div>
-                <span>ABNORMAL_AMOUNT</span>
-                <p>Payment amount differs significantly from normal activity.</p>
-              </div>
-
-              <div>
-                <span>RECENT_DEVICE_CHANGE</span>
-                <p>Recent device change detected before payment.</p>
-              </div>
-
-              <div>
-                <span>VELOCITY_SPIKE</span>
-                <p>Multiple transfers occurred within a short period.</p>
-              </div>
-            </div>
-          </section>
-
-          <section className="card">
-            <div className="section-heading">
-              <div>
-                <h2>Case Status</h2>
-                <p>Current investigation state.</p>
-              </div>
-            </div>
-
-            <div className="case-status-box">
-              <span>Status</span>
-              <strong className={status === "OPEN" ? "case-status-open" : "case-status-closed"}>
-                {status}
-              </strong>
-            </div>
-
-            <div className="case-status-box">
-              <span>Outcome</span>
-              <strong>{outcome}</strong>
-            </div>
-
-            <div className="case-status-box">
-              <span>Analyst</span>
-              <strong className="analyst-name">
-                <UserRound size={14} />
-                Demo Analyst
-              </strong>
-            </div>
-          </section>
-        </div>
-
-        <section className="card analyst-action-card">
-          <div className="section-heading">
-            <div>
-              <h2>Analyst Decision</h2>
-              <p>Record the investigation outcome for this synthetic case.</p>
-            </div>
-          </div>
-
-          {status === "OPEN" ? (
-            <>
-              <div className="outcome-actions">
-                <button
-                  className="outcome-button scam"
-                  onClick={() => handleOutcome("CONFIRMED_SCAM")}
-                >
-                  <ShieldAlert size={17} />
-                  Confirm Scam
-                </button>
-
-                <button
-                  className="outcome-button legitimate"
-                  onClick={() => handleOutcome("LEGITIMATE")}
-                >
-                  <CheckCircle2 size={17} />
-                  Mark Legitimate
-                </button>
-
-                <button
-                  className="outcome-button dismiss"
-                  onClick={() => handleOutcome("DISMISSED")}
-                >
-                  <XCircle size={17} />
-                  Dismiss Case
-                </button>
-              </div>
-
-              <div className="notes-area">
-                <label htmlFor="notes">Analyst Notes</label>
-
-                <textarea
-                  id="notes"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Add investigation notes..."
-                />
-              </div>
-            </>
-          ) : (
-            <div className="case-closed-banner">
-              <CheckCircle2 size={20} />
-
-              <div>
-                <strong>Case closed</strong>
-                <p>
-                  Outcome recorded as <b>{outcome}</b>.
-                </p>
-              </div>
-            </div>
-          )}
-        </section>
-
-        <section className="card case-timeline-card">
-          <div className="section-heading">
-            <div>
-              <h2>Case Timeline</h2>
-              <p>Investigation activity.</p>
-            </div>
-          </div>
-
-          <div className="timeline">
-            <div className="timeline-item">
-              <div className="timeline-dot" />
-
-              <div>
-                <strong>Case created</strong>
-                <span>Risk engine created an investigation case.</span>
-              </div>
-
-              <time>
-                <Clock3 size={12} />
-                2 min ago
-              </time>
-            </div>
-
-            <div className="timeline-item">
-              <div className="timeline-dot" />
-
-              <div>
-                <strong>Payment placed on hold</strong>
-                <span>Recommended action: HOLD.</span>
-              </div>
-
-              <time>Immediately</time>
-            </div>
-
-            {status === "CLOSED" && (
-              <div className="timeline-item">
-                <div className="timeline-dot" />
-
-                <div>
-                  <strong>Analyst outcome recorded</strong>
-                  <span>{outcome}</span>
-                </div>
-
-                <time>Now</time>
-              </div>
-            )}
-          </div>
-        </section>
-      </main>
-    </div>
-  );
+  return <div className="app-shell"><Sidebar /><main className="main-content">
+    <Link href="/dashboard/cases" className="back-link"><ArrowLeft size={15} /> Back to cases</Link>
+    <header className="page-header"><div><div className="eyebrow">INVESTIGATIONS / CASE DETAIL</div><h1>{caseId || "Case"}</h1><p>Case facts and evidence loaded from the backend record.</p></div><span className="data-source-label">LIVE API DATA</span></header>
+    {loading ? <section className="card empty-state">Loading case record…</section> : error && !item ? <section className="card empty-state error-copy" role="alert">Unable to load case: {error}</section> : item && <>
+      <section className="metric-grid metric-grid-three"><article className="metric-card"><div className="metric-card-top"><span>Transaction</span></div><strong className="metric-id">{item.transaction_id}</strong></article><article className="metric-card"><div className="metric-card-top"><span>Risk score</span></div><strong>{item.decision?.risk_score ?? "Unavailable"}</strong><small>{item.decision?.risk_band ?? "No decision record"}</small></article><article className="metric-card"><div className="metric-card-top"><span>Recommended action</span></div><strong>{item.decision?.recommended_action ?? "Unavailable"}</strong><small>Case status: {item.status}</small></article></section>
+      <section className="dashboard-grid case-content-grid"><article className="card"><div className="section-heading"><div><div className="eyebrow">DECISION EVIDENCE</div><h2>Signals and explanation</h2></div></div><p>{item.decision?.explanation ?? "No decision explanation is attached to this case."}</p>{item.signals.length ? <div className="evidence-list">{item.signals.map((signal, index) => <div className="evidence-row" key={`${signal.signal_type}-${index}`}><span className="risk-tag risk-elevated">{signal.signal_type}</span><strong>{signal.severity} pts</strong><p>{signal.evidence}</p><small>{signal.source_feature}: {signal.signal_value}</small></div>)}</div> : <p className="muted-copy">No persisted signal records.</p>}</article>
+        <article className="card"><div className="eyebrow">INVESTIGATION</div><h2>Case status</h2><dl className="data-list"><div><dt>Status</dt><dd>{item.status}</dd></div><div><dt>Outcome</dt><dd>{item.outcome ?? "Pending"}</dd></div><div><dt>Assigned analyst</dt><dd>{item.analyst_id ?? "Unassigned"}</dd></div><div><dt>Created</dt><dd>{new Date(item.created_at).toLocaleString()}</dd></div><div><dt>Updated</dt><dd>{new Date(item.updated_at).toLocaleString()}</dd></div></dl></article></section>
+      <section className="card case-action-card"><div className="eyebrow">ANALYST ACTION</div><h2>Record an outcome</h2><p className="muted-copy">Your decision and notes are persisted to the case and audit trail.</p><label htmlFor="case-notes">Investigation notes</label><textarea id="case-notes" value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={2000} rows={4} />{error && <p className="form-error" role="alert">{error}</p>}<div className="outcome-actions">{outcomes.map(({ value, label }) => <button className="secondary-button" type="button" key={value} disabled={saving || item.status === "RESOLVED"} onClick={() => void recordOutcome(value)}>{saving ? "Saving…" : label}</button>)}</div>{item.status === "RESOLVED" && <p className="success-copy"><CheckCircle2 size={16} /> Outcome saved to the backend.</p>}</section>
+      <section className="card"><div className="section-heading"><div><div className="eyebrow">AUDIT HISTORY</div><h2>Case timeline</h2></div><ShieldAlert size={18} /></div>{item.timeline.length ? <div className="compact-list">{item.timeline.map((event, index) => <div className="compact-row timeline-row" key={`${event.event}-${index}`}><span><strong>{event.event}</strong><small>{event.actor} · {new Date(event.created_at).toLocaleString()}</small></span></div>)}</div> : <div className="empty-state">No case-specific audit entries were returned.</div>}</section>
+    </>}
+  </main></div>;
 }

@@ -8,6 +8,6 @@ from app.services.demo_service import run_scenario
 router = APIRouter(prefix="/v1/sandbox", tags=["sandbox"])
 
 
-@router.post("/scenario", dependencies=[Depends(require_api_key)], summary="Run a deterministic demo scenario")
+@router.post("/scenario", dependencies=[Depends(require_api_key)], summary="Run a deterministic sandbox scenario")
 def scenario(request: ScenarioRequest, db: Session = Depends(get_db)):
     return run_scenario(db, request.scenario)

@@ -1,40 +1,22 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/pages/api-reference/create-next-app).
+# TrustSentinel analyst workspace
 
-## Getting Started
+Next.js Pages Router frontend for TrustSentinel. The browser calls the configured backend directly; it contains no dashboard risk fixtures or API key.
 
-First, run the development server:
+## Configure
 
-```bash
+Copy `.env.local.example` to `.env.local` and set `NEXT_PUBLIC_API_BASE_URL` to the backend origin. Configure backend `ANALYST_EMAIL`, `ANALYST_PASSWORD_HASH`, and `SESSION_SIGNING_SECRET` before signing in. Create the password hash from `backend/` with `python scripts/hash_analyst_password.py`; set a random session secret with at least 32 characters. Set backend `CORS_ORIGINS` to include the frontend origin.
+
+## Develop
+
+```powershell
+npm ci
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000`. Protected `/dashboard` routes verify the signed bearer session with `GET /v1/auth/session`. Sessions are held in browser `sessionStorage` for the current tab and expire at the backend after eight hours.
 
-You can start editing the page by modifying `pages/index.tsx`. The page auto-updates as you edit the file.
+## Backend data
 
-[API routes](https://nextjs.org/docs/pages/building-your-application/routing/api-routes) can be accessed on [http://localhost:3000/api/hello](http://localhost:3000/api/hello). This endpoint can be edited in `pages/api/hello.ts`.
+The overview and metrics screens read `/v1/metrics/summary`; transaction and case screens read `/v1/transactions` and `/v1/cases`; audit history uses `/v1/audit`. The scenario lab submits only the backend's supported scenario identifiers to `/v1/sandbox/scenario` and checks persisted transaction/audit records. Direct scoring uses `/v1/risk/score`. Empty and unavailable backend data are shown as such.
 
-The `pages/api` directory is mapped to `/api/*`. Files in this directory are treated as [API routes](https://nextjs.org/docs/pages/building-your-application/routing/api-routes) instead of React pages.
-
-This project uses [`next/font`](https://nextjs.org/docs/pages/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn-pages-router) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/pages/building-your-application/deploying) for more details.
+Synthetic scenarios create persisted synthetic records. They do not represent live payments or real-world fraud performance.

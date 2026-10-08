@@ -1,146 +1,26 @@
+import { useEffect, useState } from "react";
 import Sidebar from "../../components/layout/Sidebar";
-import {
-  TrendingUp,
-  ShieldCheck,
-  AlertTriangle,
-  Activity,
-} from "lucide-react";
-
-const riskDistribution = [
-  { label: "LOW", value: 58, count: 1842 },
-  { label: "MODERATE", value: 19, count: 604 },
-  { label: "ELEVATED", value: 13, count: 413 },
-  { label: "HIGH", value: 7, count: 222 },
-  { label: "CRITICAL", value: 3, count: 96 },
-];
-
-const interventions = [
-  { label: "ALLOW", value: 1842 },
-  { label: "WARN", value: 604 },
-  { label: "STEP-UP", value: 413 },
-  { label: "HOLD", value: 222 },
-  { label: "REVIEW", value: 96 },
-];
+import { getMetrics } from "../../lib/api";
+import { Activity, AlertTriangle, Clock3, ShieldCheck } from "lucide-react";
 
 export default function Metrics() {
-  return (
-    <div>
-      <Sidebar />
-
-      <main className="main-content">
-        <div className="page-header">
-          <div>
-            <div className="eyebrow">EXECUTIVE ANALYTICS</div>
-            <h1>Metrics</h1>
-            <p>Operational performance from the synthetic TrustSentinel environment.</p>
-          </div>
-
-          <div className="status-pill">
-            <span />
-            SYNTHETIC DATA
-          </div>
-        </div>
-
-        <div className="metrics-grid">
-          <div className="card metric-large">
-            <div className="metric-icon">
-              <Activity size={18} />
-            </div>
-            <span>Transactions Evaluated</span>
-            <strong>3,177</strong>
-            <small>synthetic transactions</small>
-          </div>
-
-          <div className="card metric-large">
-            <div className="metric-icon">
-              <AlertTriangle size={18} />
-            </div>
-            <span>High-Risk Transactions</span>
-            <strong>318</strong>
-            <small>HIGH + CRITICAL</small>
-          </div>
-
-          <div className="card metric-large">
-            <div className="metric-icon">
-              <ShieldCheck size={18} />
-            </div>
-            <span>Interventions</span>
-            <strong>1,335</strong>
-            <small>WARN + STEP-UP + HOLD + REVIEW</small>
-          </div>
-
-          <div className="card metric-large">
-            <div className="metric-icon">
-              <TrendingUp size={18} />
-            </div>
-            <span>Avg Decision Time</span>
-            <strong>42ms</strong>
-            <small>risk engine latency</small>
-          </div>
-        </div>
-
-        <div className="metrics-content-grid">
-          <section className="card">
-            <div className="section-heading">
-              <div>
-                <h2>Risk Distribution</h2>
-                <p>Distribution of evaluated synthetic transactions.</p>
-              </div>
-            </div>
-
-            <div className="distribution-list">
-              {riskDistribution.map((item) => (
-                <div className="distribution-row" key={item.label}>
-                  <div className="distribution-header">
-                    <strong>{item.label}</strong>
-                    <span>{item.count}</span>
-                  </div>
-
-                  <div className="distribution-track">
-                    <div
-                      className={`distribution-bar bar-${item.label.toLowerCase()}`}
-                      style={{ width: `${item.value}%` }}
-                    />
-                  </div>
-
-                  <small>{item.value}%</small>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="card">
-            <div className="section-heading">
-              <div>
-                <h2>Intervention Mix</h2>
-                <p>Recommended actions returned by the engine.</p>
-              </div>
-            </div>
-
-            <div className="intervention-list">
-              {interventions.map((item) => (
-                <div className="intervention-row" key={item.label}>
-                  <span>{item.label}</span>
-                  <strong>{item.value.toLocaleString()}</strong>
-                </div>
-              ))}
-            </div>
-          </section>
-        </div>
-
-        <section className="card synthetic-notice">
-          <ShieldCheck size={18} />
-
-          <div>
-            <strong>Demo analytics only</strong>
-            <p>
-              All metrics shown here are based on synthetic sandbox activity.
-              They must not be interpreted as production fraud-loss,
-              customer-impact, or financial-performance measurements.
-            </p>
-          </div>
-        </section>
-      </main>
-    </div>
-  );
+  const [metrics, setMetrics] = useState<Awaited<ReturnType<typeof getMetrics>> | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  useEffect(() => { getMetrics().then(setMetrics).catch((reason) => setError(reason instanceof Error ? reason.message : "Metrics are unavailable.")).finally(() => setLoading(false)); }, []);
+  const records = [
+    { name: "Evaluated transactions", value: metrics?.transactions_evaluated, icon: Activity },
+    { name: "Elevated and above", value: metrics?.high_risk_transactions, icon: AlertTriangle },
+    { name: "Warnings and step-ups", value: metrics ? metrics.warnings + metrics.step_ups : undefined, icon: ShieldCheck },
+    { name: "Average decision latency", value: metrics ? `${metrics.average_latency_ms} ms` : undefined, icon: Clock3 },
+  ];
+  const actions = metrics ? [{ name: "WARN", count: metrics.warnings }, { name: "STEP_UP", count: metrics.step_ups }, { name: "HOLD", count: metrics.holds }, { name: "REVIEW", count: metrics.reviews }] : [];
+  return <div className="app-shell"><Sidebar /><main className="main-content">
+    <header className="page-header"><div><div className="eyebrow">RISK OPERATIONS / ANALYTICS</div><h1>Metrics</h1><p>Aggregate counters reported by the TrustSentinel backend.</p></div><span className="data-source-label">BACKEND DATA</span></header>
+    {error && <div className="notice notice-error" role="alert">Metrics could not be loaded: {error}</div>}
+    <section className="metric-grid">{records.map(({ name, value, icon: Icon }) => <article className="metric-card" key={name}><div className="metric-card-top"><span>{name}</span><Icon size={17} /></div><strong>{loading ? "—" : value === undefined ? "Unavailable" : typeof value === "number" ? value.toLocaleString() : value}</strong><small>Persisted backend aggregate</small></article>)}</section>
+    <section className="dashboard-grid analytics-grid"><article className="card"><div className="eyebrow">ACTION COUNTS</div><h2>Intervention totals</h2><p className="muted-copy">Action counts from saved backend interventions.</p>{loading ? <div className="empty-state">Loading metrics…</div> : !metrics ? <div className="empty-state">No metrics are available.</div> : actions.map((item) => <div className="distribution-row" key={item.name}><span>{item.name}</span><strong>{item.count.toLocaleString()}</strong></div>)}</article>
+      <article className="card"><div className="eyebrow">CASE ACTIVITY</div><h2>Investigation summary</h2>{loading ? <div className="empty-state">Loading metrics…</div> : metrics ? <dl className="data-list"><div><dt>Cases created</dt><dd>{metrics.cases_created.toLocaleString()}</dd></div><div><dt>Analyst actions</dt><dd>{metrics.analyst_actions.toLocaleString()}</dd></div><div><dt>High-risk transaction rate</dt><dd>{(metrics.high_risk_rate * 100).toFixed(1)}%</dd></div><div><dt>Interventions recorded</dt><dd>{(metrics.warnings + metrics.step_ups + metrics.holds + metrics.reviews).toLocaleString()}</dd></div></dl> : <div className="empty-state">Case metrics unavailable.</div>}</article></section>
+    <p className="source-note">Metrics are aggregate records from the configured backend database. Any sandbox-generated records are synthetic and should not be interpreted as real-world fraud performance.</p>
+  </main></div>;
 }
