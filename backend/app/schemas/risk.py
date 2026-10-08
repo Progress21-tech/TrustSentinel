@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Literal
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
+from app.ml.features import FEATURES
 
 
 class RiskRequest(BaseModel):
@@ -13,6 +14,15 @@ class RiskRequest(BaseModel):
     device_id: str = Field(min_length=1, max_length=80)
     channel: Literal["mobile_app", "web", "ussd", "api"]
     timestamp: datetime | None = None
+    context_features: dict[str, float | bool] = Field(default_factory=dict)
+
+    @field_validator("context_features")
+    @classmethod
+    def validate_context_features(cls, value: dict[str, float | bool]) -> dict[str, float | bool]:
+        unknown = set(value) - set(FEATURES)
+        if unknown:
+            raise ValueError(f"Unsupported context feature(s): {', '.join(sorted(unknown))}")
+        return value
 
 
 class ScenarioRequest(BaseModel):

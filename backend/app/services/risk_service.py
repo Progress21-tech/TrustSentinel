@@ -2,6 +2,7 @@ import time
 import uuid
 import json
 import logging
+import hashlib
 from datetime import datetime, timezone
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -41,15 +42,32 @@ def score_transaction(db: Session, request: RiskRequest, feature_overrides: dict
         return _response(existing, signals, case)
     account = db.scalar(select(Account).where(Account.account_id == request.account_id))
     if account is None:
-        raise HTTPException(status_code=404, detail={"error": {"code": "ACCOUNT_NOT_FOUND", "message": "The specified account does not exist."}})
+        # Identifiers identify an incoming event; they are not a membership gate.
+        # Provision minimal synthetic entity records so the event can be persisted
+        # while feature extraction treats its entities as previously unseen.
+        from app.db.models import Customer
+        customer_id = f"score-{hashlib.sha256(request.account_id.encode()).hexdigest()[:32]}"
+        customer = db.scalar(select(Customer).where(Customer.customer_id == customer_id))
+        if customer is None:
+            customer = Customer(customer_id=customer_id, risk_profile="NORMAL", status="ACTIVE")
+            db.add(customer)
+            db.flush()
+        account = Account(account_id=request.account_id, customer_id=customer_id, status="ACTIVE")
+        db.add(account)
+        db.flush()
     if account.status != "ACTIVE":
         raise HTTPException(status_code=409, detail={"error": {"code": "ACCOUNT_INACTIVE", "message": "The specified account is not active."}})
     if db.scalar(select(Beneficiary).where(Beneficiary.beneficiary_id == request.beneficiary_id)) is None:
-        raise HTTPException(status_code=404, detail={"error": {"code": "BENEFICIARY_NOT_FOUND", "message": "The specified beneficiary does not exist."}})
-    if db.scalar(select(Device).where(Device.device_id == request.device_id)) is None:
-        raise HTTPException(status_code=404, detail={"error": {"code": "DEVICE_NOT_FOUND", "message": "The specified device does not exist."}})
+        db.add(Beneficiary(beneficiary_id=request.beneficiary_id, status="ACTIVE", risk_score=0.0))
+    device = db.scalar(select(Device).where(Device.device_id == request.device_id))
+    if device is None:
+        db.add(Device(device_id=request.device_id, account_id=request.account_id, risk_flags=[]))
+    elif device.account_id != request.account_id:
+        raise HTTPException(status_code=422, detail={"error": {"code": "DEVICE_ACCOUNT_MISMATCH", "message": "The specified device belongs to a different account."}})
+    db.flush()
     at = request.timestamp or datetime.now(timezone.utc)
     features = extract_features(db, account, request.amount, request.beneficiary_id, request.device_id, at)
+    features.update(request.context_features)
     features.update(feature_overrides or {})
     signals = evaluate_signals(features)
     rule_score = score_rules(signals)
