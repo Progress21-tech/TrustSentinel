@@ -1,35 +1,74 @@
-# Feature dictionary
+# Feature contract: `trustsentinel-context-v2`
 
-All fields are computed from synthetic transaction/account context in the MVP. They are prototype proxies, not private-message, emotion, or intent measurements. Historical values use prior transactions for the same account, before the evaluated transaction timestamp. Numeric ranges below are implementation ranges unless noted.
+This is the canonical ordered model-input contract implemented in
+[`app/ml/features.py`](../app/ml/features.py). The online service and synthetic
+generator call the same `extract_feature_context` function. Training labels,
+scenario names, IDs, currency, and channel are not model features.
 
-| Name | Definition and calculation | Type / range | Source | Risk relevance / false-positive behaviour | Privacy |
-|---|---|---|---|---|---|
-| amount | Current payment amount | number > 0 | Request | Context for deviation; high-value legitimate payments exist | Financial attribute; minimize retention |
-| log_amount | `log(1 + amount)` | number ≥ 0 | Derived | Stabilizes amount scale for ML | Derived financial attribute |
-| transaction_hour / transaction_day | Hour 0–23 and weekday 0–6 at event time | integer | Timestamp | Off-pattern times may matter; schedules vary | Time context; coarse where possible |
-| average_transaction_amount | Mean of up to 500 preceding account payments | number ≥ 0 | Transaction history | Baseline; business profile changes can shift it | Historical financial behaviour |
-| median_transaction_amount | Median of up to 500 preceding payments | number ≥ 0 | Transaction history | Robust baseline; legitimate one-offs differ | Historical financial behaviour |
-| max_transaction_amount | Maximum of up to 500 preceding payments | number ≥ 0 | Transaction history | Context only; old extremes may be stale | Historical financial behaviour |
-| transaction_count_30m / transaction_count_24h | Prior account payments in rolling windows | integer ≥ 0 | Transaction history | Velocity; batch/business activity can be normal | Activity metadata |
-| average_daily_transactions | Historical count divided by account age in days | number ≥ 0 | Transactions/account | Behaviour baseline; sparse accounts are noisy | Activity metadata |
-| amount_deviation_ratio | Current amount / historical mean (1 when no history); capped at 1000 | number ≥ 0 | Request + history | High ratio can be legitimate; never use alone | Derived financial behaviour |
-| time_of_day_deviation | Prototype deviation proxy; 0–1 in generated training examples and 0 in live MVP extraction | 0–1 | Synthetic context | Not yet a rule signal; training/live shift is a known limitation | No private activity is collected |
-| is_new_beneficiary | No prior account transaction with beneficiary | boolean | Transaction history | Can indicate unfamiliar destination; new legitimate payees occur | Pseudonymous beneficiary ID |
-| beneficiary_age_days | Days since synthetic beneficiary first seen (0 if absent) | integer ≥ 0 | Beneficiary record | Newness context; global age differs from account familiarity | Pseudonymous metadata |
-| beneficiary_risk_score | Synthetic beneficiary score | 0–100 | Beneficiary record | Network/reputation proxy; errors can affect innocent recipients | Synthetic-only in MVP |
-| beneficiary_transaction_count | Prior transactions to this beneficiary | integer ≥ 0 | Transaction history | Familiarity context; low count is not proof of risk | Financial history |
-| unique_beneficiary_count | Distinct prior beneficiaries | integer ≥ 0 | Transaction history | Changing payees can be unusual; business accounts differ | Financial history |
-| is_new_device | No prior account transaction from device | boolean | Transaction history | New access context; upgrades/travel create false positives | Pseudonymous device ID |
-| device_age_days | Days since device first seen (0 if absent) | integer ≥ 0 | Device record | Device familiarity context | Pseudonymous metadata |
-| recent_device_change | Account device change within 7 days | boolean | Account record | Recovery/upgrade may be legitimate | Security event metadata |
-| device_risk_flag | Device has synthetic risk flags | boolean | Device record | Supports network context; synthetic only | No raw fingerprint stored |
-| account_age_days | Days since account creation | integer ≥ 0 | Account record | New accounts may have less history | Account metadata |
-| recent_account_recovery | Recovery within previous 7 days | boolean | Account record | Recovery plus payment context may raise risk | Security event metadata |
-| recent_password_reset / recent_pin_reset | Placeholder reset context | boolean, false in MVP | Synthetic context | Not implemented as live signals | Never collect credentials or PIN values |
-| session_duration_deviation | Synthetic session proxy | 0–0.8 in generated rows; 0 in live MVP extraction | Synthetic context | No rule uses it today; train/live distribution shift may affect anomaly scores | No communications or biometrics |
-| interaction_velocity | Synthetic interaction proxy | 0–1 in generated training examples and 0 in live MVP extraction | Synthetic context | Not used in MVP; training/live shift is a known limitation | No keystrokes collected |
-| navigation_deviation_score | Synthetic navigation proxy | 0–0.7 in generated rows; 0 in live MVP extraction | Synthetic context | No rule uses it today; train/live distribution shift may affect anomaly scores | No browsing history collected |
-| session_anomaly_score | Synthetic session proxy | Scenario-specific 0–1 in generated rows; 0 in live MVP extraction | Synthetic context | Rule threshold 0.75; train/live distribution shift is a known limitation, not an emotional-state claim | Synthetic-only |
-| linked_risky_accounts / linked_risky_devices / linked_risky_beneficiaries | Counts of synthetic risky links | integer ≥ 0 | Synthetic graph context | Relationship evidence can be noisy | Synthetic-only; no cross-bank sharing |
-| beneficiary_in_degree / beneficiary_out_degree | Synthetic incoming/outgoing relationship counts | integer ≥ 0, 0 in MVP | Synthetic network | Network concentration context; unused until graph data exists | Synthetic-only |
-| network_risk_score | MVP uses beneficiary risk score as network proxy | 0–100 | Beneficiary record | Proxy can create false positives; synthetic only | No real network intelligence |
+The generator models event histories and entity state. It does not draw the
+final feature values independently. It runs those histories through the same
+extractor used by serving. All times are timezone-aware UTC. Missing numeric
+measurements become zero except `amount_deviation_ratio`, whose cold-start
+fallback is 1 and is paired with `has_account_history=0`.
+
+| # | Feature | Meaning and source | Transformation / type / valid range | Missing and cold-start behavior |
+|---:|---|---|---|---|
+| 1 | `log_amount` | Current transaction amount from request | `log1p(amount)`; float, [0, log1p(1e9)] | Missing/invalid amount becomes 0 before transform |
+| 2 | `amount_deviation_ratio` | Current amount divided by mean of up to 500 prior account transactions | Float, [0,1000], capped | No prior transaction: 1. Distinguish this from measured ratio 1 using `has_account_history` |
+| 3 | `has_account_history` | Whether at least one earlier transaction exists for this account | Boolean encoded 0/1 | 0 for a new or history-free account |
+| 4 | `transaction_hour` | UTC hour of the transaction timestamp | Integer-valued float, [0,23] | Missing/invalid timestamp falls back to current UTC time in extraction |
+| 5 | `transaction_count_30m` | Prior account transactions in the 30 minutes before this event | Count, [0,100000] | 0 when no qualifying history exists |
+| 6 | `transaction_count_24h` | Prior account transactions in the 24 hours before this event | Count, [0,100000] | 0 when no qualifying history exists |
+| 7 | `beneficiary_age_days` | Days since beneficiary entity `first_seen_at` | Nonnegative integer-valued float, capped at 100000 | 0 if beneficiary record is unavailable or first seen at event time |
+| 8 | `beneficiary_risk_score` | Persisted beneficiary risk score | Float, [0,100] | 0 when no score/beneficiary record is available |
+| 9 | `beneficiary_transaction_count` | Prior transactions from this account to this beneficiary | Count, [0,100000] | 0 for a beneficiary unused by this account |
+| 10 | `unique_beneficiary_count` | Distinct beneficiaries in prior account transaction history | Count, [0,100000] | 0 for an account with no history |
+| 11 | `is_new_beneficiary` | No prior account transaction to the beneficiary | Boolean encoded 0/1 | 1 for an unseen account-beneficiary pair |
+| 12 | `device_age_days` | Days since this account/device record `first_seen_at` | Nonnegative integer-valued float, capped at 100000 | 0 when the device record is absent or first seen at event time |
+| 13 | `is_new_device` | No prior account transaction from this device | Boolean encoded 0/1 | 1 for an unseen account-device pair |
+| 14 | `recent_device_change` | Account `last_device_change_at` falls in the preceding seven days | Boolean encoded 0/1 | 0 when no qualifying device-change event is recorded |
+| 15 | `recent_account_recovery` | Account `last_recovery_at` falls in the preceding seven days | Boolean encoded 0/1 | 0 when no qualifying recovery event is recorded |
+| 16 | `account_age_days` | Days since account `created_at` | Nonnegative integer-valued float, capped at 100000 | 0 if account creation time is unavailable or equals event time |
+| 17 | `average_daily_transactions` | Prior transaction count divided by account age in days plus one | Float, [0,100000] | 0 for a history-free account |
+
+The feature matrix is ordered exactly as the table. The fitted pipeline applies
+`StandardScaler` followed by `IsolationForest`; the scaler and model are stored
+together in the versioned artifact. The public scoring API accepts transaction
+facts, not caller-supplied model feature values.
+
+## Excluded from v2
+
+The following v1 fields were removed because training fabricated values that
+serving could not measure, or because they duplicated another feature without
+independent evidence:
+
+- Session/time proxies: `time_of_day_deviation`, `session_duration_deviation`,
+  `interaction_velocity`, `navigation_deviation_score`, and
+  `session_anomaly_score`.
+- Reset placeholders: `recent_password_reset` and `recent_pin_reset` (constant
+  false with no event source).
+- Synthetic graph values: `linked_risky_accounts`, `linked_risky_devices`,
+  `linked_risky_beneficiaries`, `beneficiary_in_degree`, and
+  `beneficiary_out_degree`.
+- Redundant proxy: `network_risk_score`, which duplicated beneficiary risk
+  score rather than measuring an independent network signal.
+
+Network risk is represented only by the persisted beneficiary risk score until
+TrustSentinel has a documented graph source available both during training and
+live scoring. Session fields remain excluded until scoring-time telemetry has
+a defensible source and matching training representation.
+
+## Dataset construction and leakage controls
+
+Synthetic v2 creates 10,000 transactions for 1,000 accounts. Each account is
+assigned wholly to one split: 600 accounts / 6,000 events for training, 200 /
+2,000 for validation, and 200 / 2,000 for held-out testing. History-derived
+features use only events strictly before the scored event. Validation selects
+calibration and policy; held-out records are reserved for the final evaluation.
+The split schema is `account_disjoint_train_validation_test_v2`; the fixed
+default generation seed is 2026.
+
+`synthetic_label`, `evaluation_scenario`, `dataset_split`, and
+`dataset_seed` are evaluation metadata. `build_ml_features` selects only the
+named features above and ignores these metadata columns. The target is a
+synthetic scenario proxy and must not be described as real-world fraud accuracy.

@@ -24,7 +24,8 @@ def seed():
             db.add(Customer(**row))
         db.flush()
         for row in pd.read_csv(folder / "accounts.csv").to_dict("records"):
-            row["created_at"] = pd.Timestamp(row["created_at"]).to_pydatetime()
+            for name in ("created_at", "last_recovery_at", "last_device_change_at"):
+                row[name] = None if pd.isna(row[name]) else pd.Timestamp(row[name]).to_pydatetime()
             db.add(Account(**row))
         db.flush()
         for row in pd.read_csv(folder / "devices.csv").to_dict("records"):

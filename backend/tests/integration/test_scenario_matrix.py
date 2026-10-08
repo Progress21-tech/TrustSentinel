@@ -4,6 +4,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db.database import Base
 from app.db.models import AuditLog, Case, RiskDecision, RiskSignal, Transaction
+from app.ml.predict import registry
 from app.risk_engine.rules import action_for, risk_band
 from app.services.demo_service import run_scenario
 
@@ -21,7 +22,7 @@ def test_required_scenarios_use_hybrid_engine_and_persist_decisions():
         for name in SCENARIOS:
             result = run_scenario(session, name)
             assert 0 <= result["risk_score"] <= 100
-            assert result["risk_band"] == risk_band(result["risk_score"])
+            assert result["risk_band"] == risk_band(result["risk_score"], registry.high_risk_threshold if registry.is_available else 60)
             assert result["recommended_action"] == action_for(result["risk_band"])
             assert result["transaction_id"]
             assert result["latency_ms"] >= 0

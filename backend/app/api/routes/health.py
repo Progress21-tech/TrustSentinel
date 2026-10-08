@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from sqlalchemy import text
 from app.core.config import settings
 from app.db.database import engine
+from app.ml.features import FEATURE_SCHEMA_VERSION
 from app.ml.predict import registry
 
 router = APIRouter(tags=["health"])
@@ -20,7 +21,8 @@ def readiness():
     try:
         with engine.connect() as connection: connection.execute(text("SELECT 1"))
         return {"status": "ready", "database": "available", "ml_status": "available" if registry.is_available else "unavailable_rules_only",
-            "model_version": registry.model_version, "hybrid_policy_version": registry.policy_version if registry.is_available else "rules-only"}
+            "model_version": registry.model_version, "hybrid_policy_version": registry.policy_version if registry.is_available else "rules-only",
+            "feature_schema_version": FEATURE_SCHEMA_VERSION}
     except Exception:
         from fastapi import HTTPException
         raise HTTPException(status_code=503, detail={"error": {"code": "NOT_READY", "message": "A required dependency is unavailable."}})

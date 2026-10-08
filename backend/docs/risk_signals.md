@@ -1,6 +1,8 @@
 # Risk signals and scoring
 
-Signals are deterministic, versioned (`rules_v1`) and derived from account history, beneficiary/device context, and explicit synthetic risk fields. A signal is persisted only when triggered; its evidence is returned in the API response and transaction detail.
+Signals are deterministic and versioned (`rules_v1`). The six rules below use
+account transaction history and the stored beneficiary risk score. A signal is
+persisted only when triggered; its evidence is returned by the API.
 
 | Signal | Trigger | Weight |
 |---|---|---:|
@@ -9,16 +11,23 @@ Signals are deterministic, versioned (`rules_v1`) and derived from account histo
 | NEW_DEVICE | No prior transaction for this device on the account | 15 |
 | RECENT_ACCOUNT_RECOVERY | Recovery occurred in the previous seven days | 15 |
 | HIGH_VELOCITY | At least 3 transactions in 30m or 8 in 24h | 10 |
-| BENEFICIARY_RISK | Synthetic beneficiary risk score is at least 60 | 15 |
-| NETWORK_RISK | Synthetic network score is at least 60 | 10 |
-| BEHAVIOURAL_DEVIATION | Synthetic session anomaly score is at least 0.75 | 10 |
+| BENEFICIARY_RISK | Stored beneficiary risk score is at least 60 | 15 |
 
-When a model artifact is loaded, a normalized `ml_score` of at least 0.75 also adds a `ML_ANOMALY` evidence record with weight 0. It does not change the rule score because its contribution is already represented by the configured hybrid formula.
+When the model's normalized `ml_score` reaches `ML_ANOMALY_REASON_THRESHOLD`
+(default 0.95), the API adds a `ML_ANOMALY` evidence record with zero rule
+weight. The ML contribution is already included by the hybrid formula.
 
-Rule points are summed and capped at 100. If an Isolation Forest is available, final score uses the configured rule and ML weights (defaults 0.70 and 0.30), normalized by their sum and clamped to 0–100. Per-signal weights can be overridden with `RULE_WEIGHTS_JSON`. The normalized anomaly score is calibrated as `1 - empirical_percentile(decision_function(raw_features))` against sorted train-normal scores; lower raw scores are more anomalous. The result is bounded to [0,1]. A `ML_ANOMALY` evidence record is added only when the score reaches the configurable 95th percentile tail by default; it has zero rule weight because its contribution is already in the hybrid formula. If unavailable, `ml_score` is null and `ml_status` explicitly reports unavailability; the rules-only score is used when `RULES_ONLY_FALLBACK=true`.
+Rule points are summed and capped at 100. If ML is available, the artifact's
+validation-selected weights combine the rules score and normalized anomaly
+score into a 0–100 hybrid score. The selected high-risk threshold (limited to
+55–65) sets the MODERATE/ELEVATED boundary; LOW remains 0–29, ELEVATED extends
+through 79, HIGH is 80–89, and CRITICAL is 90–100. Recommendations are ALLOW,
+WARN, STEP_UP, HOLD, and REVIEW respectively. These are prototype assumptions,
+not real-world fraud policy.
 
-Bands are LOW 0–29, MODERATE 30–59, ELEVATED 60–79, HIGH 80–89, CRITICAL 90–100. Their initial corresponding recommendations are ALLOW, WARN, STEP_UP, HOLD, REVIEW. These weights, thresholds, and actions are prototype assumptions, not calibrated production policy.
-
-## Scenario-target mismatch
-
-The PRD's sample weights and band cutoffs do not produce all its expected scenario bands. New device plus unusual amount yields 35 rule points, below HIGH; recovery, new beneficiary, and unusual amount yield 55, below CRITICAL. With ML's maximum 30-point contribution, the latter still cannot reach CRITICAL. Current results preserve the specified scoring formula and report this mismatch for calibration rather than fabricating signal evidence.
+If ML is unavailable, `ml_score` is null and `ml_status` reports
+`unavailable_rules_only`; the rules-only score is used when
+`RULES_ONLY_FALLBACK=true`. Session and graph proxy rules were removed because
+the serving system has no equivalent live measurements. Synthetic evaluation
+reports scenario-level metrics and legitimate-scenario false-positive rates;
+they are not evidence of real-world fraud performance.

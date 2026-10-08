@@ -32,6 +32,7 @@ class ModelRegistry:
         self.reference_scores = np.asarray([], dtype=float)
         self.model_version = "unavailable"
         self.training_dataset_version: str | None = None
+        self.dataset_sha256: str | None = None
         self.training_split_version = "legacy_train_test_v1"
         self.calibration_method = "empirical_lower_tail_percentile_v1"
         self.calibration_tail_cutoff: float | None = None
@@ -66,6 +67,7 @@ class ModelRegistry:
             self.reference_scores = np.sort(reference)
             self.model_version = str(artifact["model_version"])
             self.training_dataset_version = str(artifact.get("training_dataset_version", "unknown"))
+            self.dataset_sha256 = str(artifact.get("dataset_sha256")) if artifact.get("dataset_sha256") else None
             self.training_split_version = str(artifact.get("training_split_version", "legacy_train_test_v1"))
             self.calibration_method = str(artifact.get("calibration_method", "empirical_lower_tail_percentile_v1"))
             self.calibration_tail_cutoff = artifact.get("calibration_tail_cutoff")
@@ -78,8 +80,8 @@ class ModelRegistry:
             self.high_risk_threshold = int(policy.get("high_risk_threshold", 60))
             if self.rule_score_weight < 0 or self.ml_score_weight < 0 or self.rule_score_weight + self.ml_score_weight <= 0:
                 raise ValueError("model artifact contains invalid hybrid policy weights")
-            if self.high_risk_threshold != 60:
-                raise ValueError("artifact policy conflicts with the configured risk-band boundary")
+            if not 55 <= self.high_risk_threshold <= 65:
+                raise ValueError("artifact high-risk threshold must be between 55 and 65")
             self.model = model
         except Exception as exc:
             self.load_error = f"{type(exc).__name__}: {exc}"

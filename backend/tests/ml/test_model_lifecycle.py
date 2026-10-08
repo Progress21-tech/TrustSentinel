@@ -2,7 +2,7 @@ import numpy as np
 from app.ml.features import FEATURES
 from app.ml.predict import ModelRegistry, calibrate_anomaly_score
 from scripts.train_model import fit_model
-from scripts.generate_data import split_name
+from scripts.generate_data import account_split
 import joblib
 from app.ml.features import FEATURE_SCHEMA_VERSION
 
@@ -35,11 +35,13 @@ def test_normal_tail_calibration_is_monotonic_and_bounded():
     assert values == [0.0, 0.0, 0.5, 1.0]
 
 
-def test_validation_split_preserves_original_held_out_membership():
-    assert [split_name(index) for index in range(10)] == [
-        "test", "validation", "train", "train", "train",
-        "test", "validation", "train", "train", "train",
-    ]
+def test_dataset_splits_are_account_disjoint_and_proportional():
+    assert account_split(0) == "train"
+    assert account_split(599) == "train"
+    assert account_split(600) == "validation"
+    assert account_split(799) == "validation"
+    assert account_split(800) == "test"
+    assert account_split(999) == "test"
 
 
 def test_artifact_loads_selected_policy_metadata(tmp_path):

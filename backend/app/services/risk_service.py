@@ -33,7 +33,7 @@ def _response(decision: RiskDecision, signals: list[RiskSignal] | None = None, c
                      "source_feature": s.source_feature} for s in (signals or [])], "case_id": case.case_id if case else None}
 
 
-def score_transaction(db: Session, request: RiskRequest, feature_overrides: dict | None = None) -> dict:
+def score_transaction(db: Session, request: RiskRequest) -> dict:
     started = time.perf_counter()
     existing = db.scalar(select(RiskDecision).where(RiskDecision.transaction_id == request.transaction_id))
     if existing:
@@ -67,8 +67,6 @@ def score_transaction(db: Session, request: RiskRequest, feature_overrides: dict
     db.flush()
     at = request.timestamp or datetime.now(timezone.utc)
     features = extract_features(db, account, request.amount, request.beneficiary_id, request.device_id, at)
-    features.update(request.context_features)
-    features.update(feature_overrides or {})
     signals = evaluate_signals(features)
     rule_score = score_rules(signals)
     ml_started = time.perf_counter()
@@ -84,7 +82,7 @@ def score_transaction(db: Session, request: RiskRequest, feature_overrides: dict
     rule_weight = registry.rule_score_weight if registry.is_available else settings.rule_score_weight
     ml_weight = registry.ml_score_weight if registry.is_available else settings.ml_score_weight
     final_score = hybrid_score(rule_score, ml_score, rule_weight, ml_weight)
-    band = risk_band(final_score)
+    band = risk_band(final_score, registry.high_risk_threshold if registry.is_available else 60)
     action = action_for(band)
     codes, explanation = explain(signals, band, action)
     txn = Transaction(transaction_id=request.transaction_id, account_id=request.account_id, beneficiary_id=request.beneficiary_id,

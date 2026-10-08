@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.ml.features import FEATURES, FEATURE_SCHEMA_VERSION, build_ml_features, vector
 from app.risk_engine.rules import evaluate_signals, score_rules
 from app.risk_engine.scorer import hybrid_score
+from scripts.generate_data import DATASET_VERSION
 from scripts.train_model import fit_model
 
 WEIGHTS = ((0.80, 0.20), (0.75, 0.25), (0.70, 0.30), (0.65, 0.35), (0.60, 0.40))
@@ -70,11 +71,19 @@ def calibrate() -> dict:
     required = {"dataset_split", "synthetic_label", "evaluation_scenario", "dataset_seed"}
     if not required.issubset(data.columns):
         raise ValueError("Dataset lacks split/label/scenario metadata; regenerate it.")
+    if set(data["dataset_version"].astype(str)) != {DATASET_VERSION}:
+        raise ValueError("Dataset version is not the aligned v2 population; regenerate it.")
+    if set(data["feature_schema_version"].astype(str)) != {FEATURE_SCHEMA_VERSION}:
+        raise ValueError("Dataset feature schema version does not match calibration code.")
     train = data[data.dataset_split == "train"].copy()
     validation = data[data.dataset_split == "validation"].copy()
     # Intentionally never select, score, or summarize rows tagged test in this script.
-    if train.empty or validation.empty or (data.dataset_split == "test").sum() != 2_000:
-        raise ValueError("Expected non-empty train/validation splits and the unchanged 2,000-row held-out test split.")
+    split_counts = data.dataset_split.value_counts().to_dict()
+    if (len(train) != 6_000 or len(validation) != 2_000 or split_counts.get("test") != 2_000):
+        raise ValueError("Expected the aligned 6,000/2,000/2,000 train/validation/test split.")
+    account_splits = data.groupby("account_id")["dataset_split"].nunique()
+    if (account_splits > 1).any():
+        raise ValueError("An account appears in more than one data split.")
     train_normal = train[train.synthetic_label == 0]
     if len(train_normal) < max(100, len(FEATURES) * 5):
         raise ValueError("Insufficient normal training rows for Isolation Forest.")
@@ -140,13 +149,11 @@ def calibrate() -> dict:
         scenarios_result = candidate["scenario_metrics"]
         return all(scenarios_result.get(name, {}).get("high_risk_rate", 0.0) == 0.0 for name in LEGITIMATE_SCENARIOS)
 
-    selectable = [entry for entry in search if entry["threshold"] == 60 and
+    selectable = [entry for entry in search if
                   entry["metrics"]["precision"] > 0.90 and
                   entry["metrics"]["false_positive_rate"] < 0.10 and safe(entry)]
-    eligible_pool = selectable or [entry for entry in search if entry["threshold"] == 60 and
+    eligible_pool = selectable or [entry for entry in search if
                                    entry["metrics"]["false_positive_rate"] < 0.10 and safe(entry)]
-    if not eligible_pool:
-        raise RuntimeError("No validation candidate preserves normal/legitimate scenario safety with false-positive rate below 10%.")
     no_regression = [entry for entry in selectable if
                      entry["metrics"]["recall"] >= current_baseline["metrics"]["recall"] and
                      entry["metrics"]["f1"] >= current_baseline["metrics"]["f1"]]
@@ -162,24 +169,32 @@ def calibrate() -> dict:
             entry["metrics"]["f1"], entry["metrics"]["recall"], entry["metrics"]["precision"],
         ))
         selection_reason = "highest_validation_f1_among_candidates_meeting_precision_false_positive_and_legitimate_safety_constraints"
-    else:
+    elif eligible_pool:
         selected = max(eligible_pool, key=lambda entry: (
             entry["metrics"]["f1"], entry["metrics"]["recall"], entry["metrics"]["precision"],
         ))
         selection_reason = "best_validation_f1_under_false_positive_and_legitimate_safety_constraints; precision_target_not_met"
+    else:
+        selected = min(search, key=lambda entry: (
+            sum(entry["scenario_metrics"].get(name, {}).get("high_risk_rate", 0.0) for name in LEGITIMATE_SCENARIOS),
+            entry["metrics"]["false_positive_rate"],
+            -entry["metrics"]["f1"], -entry["metrics"]["precision"],
+            abs(entry["threshold"] - 60),
+        ))
+        selection_reason = "no_candidate_met_legitimate_safety_and_false_positive_constraints; selected_least_unsafe_validation_candidate"
     selected_policy_version = (
-        "hybrid-policy-v1.0.0"
+        "hybrid-policy-v2.0.0"
         if selected["rule_weight"] == 0.70 and selected["ml_weight"] == 0.30 and
-        selected["calibration_method"] == "empirical_lower_tail_percentile_v1"
-        else "hybrid-policy-v1.1.0"
+        selected["calibration_method"] == "empirical_lower_tail_percentile_v1" and selected["threshold"] == 60
+        else "hybrid-policy-v2.1.0"
     )
     selected_policy = {
-        "dataset_version": f"trustsentinel-synthetic-v1-seed-{int(data.dataset_seed.iloc[0])}",
-        "split_version": "train_validation_test_v1",
+        "dataset_version": f"{DATASET_VERSION}-seed-{int(data.dataset_seed.iloc[0])}",
+        "split_version": "account_disjoint_train_validation_test_v2",
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "rule_weight": selected["rule_weight"],
         "ml_weight": selected["ml_weight"],
-        "high_risk_threshold": 60,
+        "high_risk_threshold": int(round(selected["threshold"])),
         "calibration_method": selected["calibration_method"],
         "calibration_tail_cutoff": selected["calibration_tail_cutoff"],
         "policy_version": selected_policy_version,
@@ -187,11 +202,11 @@ def calibrate() -> dict:
     }
     report = {
         "evaluation_type": "synthetic validation only; not real-world fraud performance",
-        "dataset_version": f"trustsentinel-synthetic-v1-seed-{int(data.dataset_seed.iloc[0])}",
-        "split_version": "train_validation_test_v1",
+        "dataset_version": f"{DATASET_VERSION}-seed-{int(data.dataset_seed.iloc[0])}",
+        "split_version": "account_disjoint_train_validation_test_v2",
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "split_counts": {str(name): int(count) for name, count in data.dataset_split.value_counts().items()},
-        "split_definition": "Existing every-fifth test rows preserved; one fifth of remaining rows assigned validation; all other rows train.",
+        "split_definition": "Accounts are assigned as whole groups: first 60% train, next 20% validation, final 20% held-out test.",
         "test_split_used": False,
         "training_rows": int(len(train)), "training_normal_rows": int(len(train_normal)),
         "validation_rows": int(len(validation)),
@@ -201,7 +216,7 @@ def calibrate() -> dict:
             "max_features": settings.ml_max_features, "random_state": settings.ml_random_state,
         },
         "training_normal_tail_cutoffs": thresholds_from_train,
-        "threshold_policy_note": "55-65 candidates are reported for analysis; only 60 is selectable so the configured risk-band boundary remains unchanged.",
+        "threshold_policy_note": "The validation-selected high-risk threshold is applied consistently to the risk-band boundary; candidates are limited to 55-65.",
         "validation_baseline_old_hybrid": current_baseline,
         "validation_baselines": validation_baselines,
         "threshold_experiments_current_calibration_70_30": [entry for entry in search

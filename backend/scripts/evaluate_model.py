@@ -1,6 +1,7 @@
 """Compare rules-only, ML-only and hybrid scores on one deterministic held-out set."""
 from __future__ import annotations
 
+import hashlib
 import json
 import statistics
 import sys
@@ -71,11 +72,14 @@ def _evaluation_set(path: Path) -> pd.DataFrame:
     held_out = data[data["dataset_split"] == "test"].copy()
     if held_out.empty or len(held_out) != 2_000 or "validation" not in set(data["dataset_split"]):
         raise ValueError("Expected the unchanged 2,000-row held-out test split and a separate validation split.")
-    if registry.training_split_version != "train_validation_test_v1":
+    if registry.training_split_version != "account_disjoint_train_validation_test_v2":
         raise ValueError("Model artifact was not trained with the current train/validation/test split; recalibrate and retrain.")
     seeds = data["dataset_seed"].dropna().unique().tolist()
     if seeds != [expected_seed]:
         raise ValueError(f"Evaluation data seed {seeds} does not match model dataset {registry.training_dataset_version}; regenerate and retrain together.")
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    if registry.dataset_sha256 and digest != registry.dataset_sha256:
+        raise ValueError("Evaluation dataset hash does not match the trained model artifact; regenerate and retrain together.")
     return held_out
 
 
@@ -88,7 +92,7 @@ def evaluate() -> dict:
     data = _evaluation_set(ROOT / "data" / "synthetic" / "transactions.csv")
     labels = [int(value) for value in data["synthetic_label"].tolist()]
 
-    rule_scores, ml_scores, old_ml_scores, hybrid_scores, old_hybrid_scores, ml_times = [], [], [], [], [], []
+    rule_scores, ml_scores, old_ml_scores, hybrid_scores, old_hybrid_scores, ml_times, raw_scores = [], [], [], [], [], [], []
     for record in data.to_dict("records"):
         features = build_ml_features(record)
         # vector() applies the same named schema and order used by online inference.
@@ -102,24 +106,26 @@ def evaluate() -> dict:
         if ml_score is None or old_ml_score is None:
             raise RuntimeError("ML inference failed while evaluating the held-out dataset.")
         rule_scores.append(rule_score)
+        raw_scores.append(float(registry.model.decision_function([vector(features)])[0]))
         ml_scores.append(ml_score * 100.0)
         old_ml_scores.append(old_ml_score * 100.0)
         hybrid_scores.append(hybrid_score(rule_score, ml_score, registry.rule_score_weight, registry.ml_score_weight))
         old_hybrid_scores.append(hybrid_score(rule_score, old_ml_score, BASELINE_RULE_WEIGHT, BASELINE_ML_WEIGHT))
 
+    selected_threshold = registry.high_risk_threshold
     predictions = {
-        "rules_only": [int(score >= 60) for score in rule_scores],
+        "rules_only": [int(score >= selected_threshold) for score in rule_scores],
         "ml_only": [int(score >= settings.ml_high_risk_threshold * 100) for score in ml_scores],
-        "hybrid": [int(score >= 60) for score in hybrid_scores],
+        "hybrid": [int(score >= selected_threshold) for score in hybrid_scores],
         "old_hybrid_baseline": [int(score >= 60) for score in old_hybrid_scores],
     }
     methods = {
-        "rules_only": {"threshold": 60, "metrics": _confusion(labels, predictions["rules_only"])},
+        "rules_only": {"threshold": selected_threshold, "metrics": _confusion(labels, predictions["rules_only"])},
         "ml_only": {"threshold": settings.ml_high_risk_threshold * 100, "metrics": _confusion(labels, predictions["ml_only"])},
-        "hybrid": {"threshold": 60, "metrics": _confusion(labels, predictions["hybrid"])},
-        "old_hybrid_baseline": {"threshold": 60, "metrics": _confusion(labels, predictions["old_hybrid_baseline"])},
+        "hybrid": {"threshold": selected_threshold, "metrics": _confusion(labels, predictions["hybrid"])},
+        "same_artifact_legacy_calibration_70_30_threshold_60": {"threshold": 60, "metrics": _confusion(labels, predictions["old_hybrid_baseline"])},
     }
-    old_metrics = methods["old_hybrid_baseline"]["metrics"]
+    old_metrics = methods["same_artifact_legacy_calibration_70_30_threshold_60"]["metrics"]
     new_metrics = methods["hybrid"]["metrics"]
     metric_changes = {
         name: new_metrics[name] - old_metrics[name]
@@ -170,19 +176,30 @@ def evaluate() -> dict:
     report = {
         "evaluation_type": "synthetic prototype only; not real-world fraud performance",
         "dataset_version": registry.training_dataset_version,
+        "dataset_sha256": getattr(registry, "dataset_sha256", None),
+        "dataset_split_counts": {str(name): int(count) for name, count in data.dataset_split.value_counts().items()},
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "model_version": registry.model_version,
         "hybrid_policy_version": registry.policy_version,
-        "old_hybrid_policy_version": "hybrid-policy-v1.0.0",
+        "previous_deployed_model_comparison": {
+            "available": False,
+            "reason": "The iforest-v1.1.0 artifact is unavailable locally; no old-model scores were fabricated.",
+        },
         "calibration_method": registry.calibration_method,
         "calibration_tail_cutoff": registry.calibration_tail_cutoff,
         "training_split_version": registry.training_split_version,
         "hybrid_weights": {"rules": registry.rule_score_weight, "ml": registry.ml_score_weight},
         "records": len(labels), "normal_records": normal_count, "synthetic_high_risk_records": sum(labels),
         "scenario_coverage": positive_scenarios, "scenario_coverage_count": len(positive_scenarios),
-        "classification_threshold_definition": "risk score >= 60 is high risk; ML-only uses configured ML score threshold",
+        "classification_threshold_definition": f"risk score >= selected threshold {selected_threshold} is high risk; ML-only uses configured ML score threshold",
         "methods": methods,
-        "hybrid_metric_changes_vs_retrained_old_policy": metric_changes,
+        "test_score_distributions": {
+            "raw_decision_function": {"min": min(raw_scores), "median": statistics.median(raw_scores), "mean": statistics.mean(raw_scores), "max": max(raw_scores)},
+            "calibrated_ml_score": {"min": min(ml_scores), "median": statistics.median(ml_scores), "mean": statistics.mean(ml_scores), "max": max(ml_scores)},
+            "rules_score": {"min": min(rule_scores), "median": statistics.median(rule_scores), "mean": statistics.mean(rule_scores), "max": max(rule_scores)},
+            "hybrid_score": {"min": min(hybrid_scores), "median": statistics.median(hybrid_scores), "mean": statistics.mean(hybrid_scores), "max": max(hybrid_scores)},
+        },
+        "hybrid_metric_changes_vs_same_artifact_legacy_policy": metric_changes,
         "ml_inference_latency_ms": {"mean": statistics.mean(ml_times), "median": statistics.median(ml_times)},
         "by_scenario": scenario_metrics,
         "api_scenario_runs": scenario_runs,

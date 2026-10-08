@@ -135,7 +135,7 @@ def test_protected_risk_score_route_persists_existing_contract(monkeypatch):
         assert payload["recommended_action"]
         assert payload["model_version"]
         assert payload["hybrid_policy_version"]
-        assert payload["feature_schema_version"] == "trustsentinel-context-v1"
+        assert payload["feature_schema_version"] == "trustsentinel-context-v2"
     finally:
         app.dependency_overrides.pop(get_db, None)
         engine.dispose()

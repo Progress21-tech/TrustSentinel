@@ -9,8 +9,8 @@ class Settings(BaseSettings):
     app_name: str = "trustsentinel-backend"
     app_version: str = "0.1.0"
     database_url: str = "sqlite:///./trustsentinel.db"
-    model_path: str = "models/isolation_forest_v1.joblib"
-    model_version: str = "iforest-v1.1.0"
+    model_path: str = "models/isolation_forest_v2.joblib"
+    model_version: str = "iforest-v2.0.0"
     ml_n_estimators: int = Field(default=200, ge=10, le=2000)
     ml_random_state: int = 2026
     ml_contamination: str = "auto"
@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     rules_only_fallback: bool = True
     rule_score_weight: float = Field(default=0.7, ge=0)
     ml_score_weight: float = Field(default=0.3, ge=0)
-    rule_weights_json: str = '{"NEW_BENEFICIARY":20,"UNUSUAL_AMOUNT":20,"NEW_DEVICE":15,"RECENT_ACCOUNT_RECOVERY":15,"HIGH_VELOCITY":10,"BENEFICIARY_RISK":15,"NETWORK_RISK":10,"BEHAVIOURAL_DEVIATION":10}'
+    rule_weights_json: str = '{"NEW_BENEFICIARY":20,"UNUSUAL_AMOUNT":20,"NEW_DEVICE":15,"RECENT_ACCOUNT_RECOVERY":15,"HIGH_VELOCITY":10,"BENEFICIARY_RISK":15}'
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
