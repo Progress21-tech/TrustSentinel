@@ -10,6 +10,7 @@ from app.core.security import require_api_key
 from app.db.database import Base, get_db
 from app.db.models import Account, Beneficiary, Customer, Device
 from app.main import app
+from app.api.routes import scenarios as scenarios_route
 
 
 def test_openapi_declares_api_key_for_protected_routes_and_keeps_health_public():
@@ -51,15 +52,42 @@ def test_protected_scenario_requires_configured_key_and_allows_valid_key(monkeyp
                 json={"scenario": "normal"},
                 headers={"X-API-Key": "incorrect"},
             ).status_code == 401
-            response = client.post(
-                "/v1/sandbox/scenario",
-                json={"scenario": "normal"},
-                headers={"X-API-Key": "test-secret-from-settings"},
+            scenarios = (
+                "normal", "legitimate_high_value", "new_beneficiary_large_amount",
+                "new_device_large_transfer", "rapid_transfers", "risky_beneficiary",
+                "account_recovery_new_beneficiary", "combined_high_risk",
             )
-            assert response.status_code == 200
+            for scenario in scenarios:
+                response = client.post(
+                    "/v1/sandbox/scenario",
+                    json={"scenario": scenario},
+                    headers={"X-API-Key": "test-secret-from-settings"},
+                )
+                assert response.status_code == 200, f"{scenario}: {response.text}"
+                payload = response.json()
+                assert payload["transaction_id"]
+                assert 0 <= payload["risk_score"] <= 100
+                assert payload["ml_status"] in {"available", "unavailable_rules_only"}
     finally:
         app.dependency_overrides.pop(get_db, None)
         engine.dispose()
+
+
+def test_unexpected_errors_keep_generic_response_and_log_traceback(monkeypatch, caplog):
+    monkeypatch.setattr(settings, "api_key_secret", "")
+
+    def fail_scenario(*args, **kwargs):
+        raise RuntimeError("scenario failure detail")
+
+    monkeypatch.setattr(scenarios_route, "run_scenario", fail_scenario)
+    with TestClient(app) as client:
+        response = client.post("/v1/sandbox/scenario", json={"scenario": "normal"})
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "error": {"code": "INTERNAL_ERROR", "message": "An unexpected error occurred."}
+    }
+    assert "RuntimeError: scenario failure detail" in caplog.text
 
 
 def test_empty_configured_secret_preserves_open_access(monkeypatch):

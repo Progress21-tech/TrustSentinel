@@ -1,6 +1,10 @@
+import logging
+
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+
+logger = logging.getLogger("trustsentinel.errors")
 
 
 def register_error_handlers(app: FastAPI) -> None:
@@ -19,4 +23,5 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def unexpected_error(_: Request, exc: Exception):
+        logger.exception("Unhandled request exception", exc_info=exc)
         return JSONResponse(status_code=500, content={"error": {"code": "INTERNAL_ERROR", "message": "An unexpected error occurred."}})
