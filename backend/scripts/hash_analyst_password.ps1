@@ -13,6 +13,7 @@ try {
         throw "Passwords do not match. Run the command again."
     }
 
+    Write-Host "Generating PBKDF2 hash..."
     $source = @'
 using System;
 using System.Security.Cryptography;
