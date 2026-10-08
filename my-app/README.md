@@ -4,7 +4,9 @@ Next.js Pages Router frontend for TrustSentinel. The browser calls the configure
 
 ## Configure
 
-Copy `.env.local.example` to `.env.local` and set `NEXT_PUBLIC_API_BASE_URL` to the backend origin. Configure backend `ANALYST_EMAIL`, `ANALYST_PASSWORD_HASH`, and `SESSION_SIGNING_SECRET` before signing in. Create the password hash from `backend/` with `python scripts/hash_analyst_password.py`; set a random session secret with at least 32 characters. Set backend `CORS_ORIGINS` to include the frontend origin.
+Copy `.env.local.example` to `.env.local` and set `NEXT_PUBLIC_API_BASE_URL` to the backend origin. Optionally set `NEXT_PUBLIC_DEMO_EMAIL` and `NEXT_PUBLIC_DEMO_PASSWORD` to prefill the login form for a dedicated, least-privilege demo account. These `NEXT_PUBLIC_` values are included in browser-delivered frontend code; never use production or privileged credentials. Prefilling does not sign the user in: clicking Continue still submits credentials to the backend's real login endpoint.
+
+Configure backend `ANALYST_EMAIL`, `ANALYST_PASSWORD_HASH`, and `SESSION_SIGNING_SECRET` before signing in. Create the password hash from `backend/` with `python scripts/hash_analyst_password.py`; set a random session secret with at least 32 characters. Set backend `CORS_ORIGINS` to include the frontend origin.
 
 ## Develop
 

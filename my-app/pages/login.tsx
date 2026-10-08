@@ -5,8 +5,8 @@ import { login } from "@/lib/api";
 
 export default function Login() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState(process.env.NEXT_PUBLIC_DEMO_EMAIL ?? "");
+  const [password, setPassword] = useState(process.env.NEXT_PUBLIC_DEMO_PASSWORD ?? "");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
