@@ -8,7 +8,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.config import settings
 from app.core.security import require_api_key
 from app.db.database import Base, get_db
-from app.db.models import Account, Beneficiary, Customer, Device
+from app.db.models import Account, Beneficiary, Customer, Device, Transaction
 from app.main import app
 from app.api.routes import scenarios as scenarios_route
 
@@ -116,6 +116,9 @@ def test_protected_risk_score_route_persists_existing_contract(monkeypatch):
         session.add(Beneficiary(beneficiary_id="api-test-beneficiary", first_seen_at=now - timedelta(days=30)))
         session.add(Device(device_id="api-test-device", account_id="api-test-account",
             first_seen_at=now - timedelta(days=30), risk_flags=[]))
+        session.add(Transaction(transaction_id="api-test-history", account_id="api-test-account",
+            beneficiary_id="api-test-known-beneficiary", device_id="api-test-device", amount=50000,
+            currency="NGN", channel="mobile_app", timestamp=now - timedelta(days=2)))
         session.commit()
 
     app.dependency_overrides[get_db] = override_get_db
@@ -127,15 +130,42 @@ def test_protected_risk_score_route_persists_existing_contract(monkeypatch):
                 "amount": 50000, "currency": "NGN", "beneficiary_id": "api-test-beneficiary",
                 "device_id": "api-test-device", "channel": "mobile_app",
             }, headers={"X-API-Key": "risk-route-test-key"})
-        assert response.status_code == 200
-        payload = response.json()
-        assert payload["transaction_id"] == "api-test-transaction"
-        assert 0 <= payload["risk_score"] <= 100
-        assert payload["risk_band"]
-        assert payload["recommended_action"]
-        assert payload["model_version"]
-        assert payload["hybrid_policy_version"]
-        assert payload["feature_schema_version"] == "trustsentinel-context-v2"
-    finally:
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["transaction_id"] == "api-test-transaction"
+            assert 0 <= payload["risk_score"] <= 100
+            assert payload["risk_band"]
+            assert payload["recommended_action"]
+            assert "NEW_BENEFICIARY" in payload["reason_codes"]
+            assert payload["risk_band"] in {"LOW", "MODERATE"}, "A first-time beneficiary alone must not become a high-risk finding"
+            assert payload["model_version"]
+            assert payload["hybrid_policy_version"]
+            assert payload["feature_schema_version"] == "trustsentinel-context-v2"
+            assert payload["assessment_id"].startswith("dec_")
+            assert payload["data_completeness"]["status"] == "history_available"
+            assert payload["request_id"]
+            assert response.headers["X-Request-ID"] == payload["request_id"]
+            repeated = client.post("/v1/risk/score", json={
+                "transaction_id": "api-test-transaction", "account_id": "api-test-account",
+                "amount": 50000, "currency": "NGN", "beneficiary_id": "api-test-beneficiary",
+                "device_id": "api-test-device", "channel": "mobile_app",
+            }, headers={"X-API-Key": "risk-route-test-key"})
+            assert repeated.status_code == 200
+            assert repeated.json()["assessment_id"] == payload["assessment_id"]
+            conflict = client.post("/v1/risk/score", json={
+                "transaction_id": "api-test-transaction", "account_id": "api-test-account",
+                "amount": 50001, "currency": "NGN", "beneficiary_id": "api-test-beneficiary",
+                "device_id": "api-test-device", "channel": "mobile_app",
+            }, headers={"X-API-Key": "risk-route-test-key"})
+            assert conflict.status_code == 409
+            assert conflict.json()["error"]["code"] == "IDEMPOTENCY_CONFLICT"
+            invalid = client.post("/v1/risk/score", json={
+                "transaction_id": "api-test-invalid-amount", "account_id": "api-test-account",
+                "amount": 50000.001, "currency": "NGN", "beneficiary_id": "api-test-beneficiary",
+                "device_id": "api-test-device", "channel": "mobile_app",
+            }, headers={"X-API-Key": "risk-route-test-key"})
+            assert invalid.status_code == 422
+            assert invalid.json()["error"]["code"] == "VALIDATION_ERROR"
+        finally:
         app.dependency_overrides.pop(get_db, None)
         engine.dispose()

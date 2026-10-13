@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 import uuid
 from fastapi import FastAPI, Request
@@ -12,7 +13,7 @@ from app.db import models  # noqa: F401
 
 logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO), format="%(message)s")
 logger = logging.getLogger("trustsentinel")
-app = FastAPI(title="TrustSentinel API", version=settings.app_version,
+app = FastAPI(title="Cerviqon API", version=settings.app_version,
     description="Synthetic-data prototype for contextual social-engineering risk assessment. Scores are advisory; the service does not move or block real funds.")
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origin_list or [], allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type", "X-API-Key", "Authorization", "X-Request-ID"])
@@ -21,7 +22,9 @@ app.middleware("http")(rate_limit_middleware)
 
 @app.middleware("http")
 async def request_observability(request: Request, call_next):
-    request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+    supplied_request_id = request.headers.get("X-Request-ID", "")
+    request_id = supplied_request_id if re.fullmatch(r"[A-Za-z0-9._-]{1,128}", supplied_request_id) else str(uuid.uuid4())
+    request.state.request_id = request_id
     started = time.perf_counter()
     response = await call_next(request)
     response.headers["X-Request-ID"] = request_id

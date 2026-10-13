@@ -40,7 +40,7 @@ export default function Dashboard() {
   ];
 
   return <div className="app-shell"><Sidebar /><main className="main-content">
-    <header className="page-header"><div><div className="eyebrow">RISK OPERATIONS / OVERVIEW</div><h1>Decision overview</h1><p>Signals and persisted decisions from TrustSentinel.</p></div><span className="data-source-label">BACKEND DATA</span></header>
+    <header className="page-header"><div><div className="eyebrow">RISK OPERATIONS / OVERVIEW</div><h1>Decision overview</h1><p>Signals and persisted decisions from Cerviqon.</p></div><span className="data-source-label">BACKEND DATA</span></header>
     {data.errors.length > 0 && <div className="notice notice-error" role="status"><strong>Some live data could not be loaded.</strong><span>{data.errors.join(" · ")}</span></div>}
     <section className="metric-grid">
       {values.map(({ label, value, icon: Icon, note }) => <article className="metric-card" key={label}><div className="metric-card-top"><span>{label}</span><Icon size={17} /></div><strong>{loading ? "—" : value === undefined ? "Unavailable" : typeof value === "number" ? value.toLocaleString() : value}</strong><small>{note}</small></article>)}

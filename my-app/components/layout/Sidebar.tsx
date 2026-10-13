@@ -46,7 +46,7 @@ export default function Sidebar() {
     <aside className="sidebar">
       <Link href="/dashboard" className="brand-lockup sidebar-brand">
         <span className="brand-mark"><ShieldCheck size={21} /></span>
-        <span><strong>TrustSentinel</strong><small>INNOVATEX · RISK INTELLIGENCE</small></span>
+        <span><strong>Cerviqon</strong><small>INNOVATEX · RISK INTELLIGENCE</small></span>
       </Link>
       <div className="nav-caption">WORKSPACE</div>
       <nav aria-label="Main navigation">

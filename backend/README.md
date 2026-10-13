@@ -1,6 +1,6 @@
-# TrustSentinel
+# Cerviqon
 
-TrustSentinel is a synthetic-data prototype for identifying contextual indicators associated with potentially socially engineered payments. It returns explainable risk assessments and recommended interventions; it does not process payments or determine customer intent. Scores and prevented-loss figures are prototype/simulated values, not production accuracy claims.
+Cerviqon is a synthetic-data prototype for identifying contextual indicators associated with potentially socially engineered payments. It returns explainable risk assessments and recommended interventions; it does not process payments or determine customer intent. Scores and prevented-loss figures are prototype/simulated values, not production accuracy claims.
 
 ## Run locally
 
@@ -39,13 +39,13 @@ Example:
 
 List or inspect cases at `/v1/cases`; submit an analyst outcome to `/v1/cases/{case_id}/outcome`. `/v1/metrics/summary` includes explicitly simulated financial totals. `/v1/transactions/{transaction_id}` returns its decision, signals, intervention, and case reference.
 
-For a direct risk request, first seed an account and history (below), then call `POST /v1/risk/score`:
+For a direct risk request, call POST /v1/risk/score with synthetic identifiers (unseen account/device/beneficiary identifiers are provisioned as new entities):
 
 ```json
 {"transaction_id":"txn_001","account_id":"ACC-00001","amount":850000,"currency":"NGN","beneficiary_id":"BEN-00001","device_id":"DEV-0001","channel":"mobile_app"}
 ```
 
-Unknown accounts return 404. Beneficiary/device novelty is calculated against that account's own transaction history. Validation errors use a stable `{ "error": { "code", "message" } }` structure.
+Beneficiary/device novelty is calculated against that account's own transaction history. Identical retries return the same assessment; reuse of a transaction ID with changed facts returns 409. See docs/api.md and scripts/simulate_integration.py. Validation errors use a stable error/code/message structure.
 
 ## Synthetic data and ML
 
@@ -101,7 +101,7 @@ The application also creates missing tables on startup to keep the MVP demo simp
 - `GET /v1/cases`, `GET /v1/cases/{case_id}`, `POST /v1/cases/{case_id}/outcome`
 - `GET /v1/metrics/summary`
 
-Swagger/OpenAPI is available at `/docs`. See [`docs/api.md`](docs/api.md), [`docs/risk_signals.md`](docs/risk_signals.md), and [`docs/feature_dictionary.md`](docs/feature_dictionary.md).
+Swagger/OpenAPI is available at `/docs`. See docs/api.md, docs/risk_signals.md, docs/feature_dictionary.md, docs/evaluation-status.md, docs/security-readiness.md, and docs/deployment.md.
 
 ## Docker
 
@@ -127,3 +127,8 @@ The authenticated frontend also uses `GET /v1/transactions`, `GET /v1/audit`, an
 ## Prototype scoring assumptions
 
 Risk bands retain LOW 0–29, MODERATE through the selected validation threshold, ELEVATED through 79, HIGH 80–89, and CRITICAL 90–100. The selected threshold is constrained to 55–65 and is stored with the artifact. When ML is unavailable, rules-only fallback uses the default 60 boundary and configured weights. `RULE_WEIGHTS_JSON` controls individual rule contributions, and `RULE_SCORE_WEIGHT`/`ML_SCORE_WEIGHT` control fallback scoring.
+
+
+## MVP readiness
+
+See the current-state audit at ../docs/audit/CERVIQON_CURRENT_STATE_AUDIT.md and implementation summary at ../docs/MVP_IMPLEMENTATION_SUMMARY.md. The current prototype is single-tenant: shared credentials and global records do not provide institution isolation. Do not use real institution data or represent this build as production ready.

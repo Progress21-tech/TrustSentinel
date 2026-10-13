@@ -1,6 +1,6 @@
-# TrustSentinel analyst workspace
+# Cerviqon analyst workspace
 
-Next.js Pages Router frontend for TrustSentinel. The browser calls the configured backend directly; it contains no dashboard risk fixtures or API key.
+Next.js Pages Router frontend for Cerviqon. The browser calls the configured backend directly; it contains no dashboard risk fixtures or API key.
 
 ## Configure
 
@@ -25,4 +25,4 @@ Synthetic scenarios create persisted synthetic records. They do not represent li
 
 ## Visual design source
 
-The TrustSentinel visual tokens are based on the supplied pitch deck's embedded RGB vector colors: `#F2F7FA` background, `#164B82` brand blue, `#343434` text, `#C8D1D9` dividers, plus white and black. `#E7EFF6` is a light brand-blue tint for interactive surfaces. Risk and service-status colors remain semantic. The deck embeds Telegraf (UltraLight, Regular, Bold), TT Hoves Regular, and Noto Sans Bold. Those licensed font files are not included in the frontend, so the CSS names them first and falls back to installed system sans-serif fonts; exact font rendering requires appropriately licensed font files.
+The Cerviqon visual tokens are based on the supplied pitch deck's embedded RGB vector colors: `#F2F7FA` background, `#164B82` brand blue, `#343434` text, `#C8D1D9` dividers, plus white and black. `#E7EFF6` is a light brand-blue tint for interactive surfaces. Risk and service-status colors remain semantic. The deck embeds Telegraf (UltraLight, Regular, Bold), TT Hoves Regular, and Noto Sans Bold. Those licensed font files are not included in the frontend, so the CSS names them first and falls back to installed system sans-serif fonts; exact font rendering requires appropriately licensed font files.

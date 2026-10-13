@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_env: str = "development"
-    app_name: str = "trustsentinel-backend"
+    app_name: str = "cerviqon-backend"
     app_version: str = "0.1.0"
     database_url: str = "sqlite:///./trustsentinel.db"
     model_path: str = "models/isolation_forest_v2.joblib"

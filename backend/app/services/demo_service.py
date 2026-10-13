@@ -58,7 +58,7 @@ def _ensure_scenario(db: Session, scenario: str):
     return txn_id, account_id, amount, ben_id, dev_id, recovery
 
 
-def run_scenario(db: Session, scenario: str) -> dict:
+def run_scenario(db: Session, scenario: str, request_id: str | None = None) -> dict:
     txn_id, account_id, amount, ben_id, dev_id, recovery = _ensure_scenario(db, scenario)
     return score_transaction(db, RiskRequest(transaction_id=txn_id, account_id=account_id, amount=amount,
-        currency="NGN", beneficiary_id=ben_id, device_id=dev_id, channel="mobile_app", timestamp=DEMO_AT))
+        currency="NGN", beneficiary_id=ben_id, device_id=dev_id, channel="mobile_app", timestamp=DEMO_AT), request_id=request_id)

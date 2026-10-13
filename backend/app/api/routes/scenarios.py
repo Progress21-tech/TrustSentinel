@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 from app.core.security import require_api_key
 from app.db.database import get_db
@@ -9,5 +9,5 @@ router = APIRouter(prefix="/v1/sandbox", tags=["sandbox"])
 
 
 @router.post("/scenario", dependencies=[Depends(require_api_key)], summary="Run a deterministic sandbox scenario")
-def scenario(request: ScenarioRequest, db: Session = Depends(get_db)):
-    return run_scenario(db, request.scenario)
+def scenario(request: ScenarioRequest, http_request: Request, db: Session = Depends(get_db)):
+    return run_scenario(db, request.scenario, getattr(http_request.state, "request_id", None))

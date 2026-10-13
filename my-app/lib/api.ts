@@ -13,6 +13,9 @@ export interface SessionUser {
 }
 
 export interface RiskResult {
+  assessment_id: string;
+  request_id: string | null;
+  data_completeness: { status: string; has_account_history: boolean | null };
   transaction_id: string;
   risk_score: number;
   risk_band: string;
@@ -87,7 +90,7 @@ export async function apiFetch<T>(
   options: RequestInit = {},
   authenticated = true,
 ): Promise<T> {
-  if (!API_BASE_URL) throw new Error("TrustSentinel API URL is not configured.");
+  if (!API_BASE_URL) throw new Error("Cerviqon API URL is not configured.");
 
   const headers = new Headers(options.headers);
   if (options.body) headers.set("Content-Type", "application/json");
@@ -106,7 +109,7 @@ export async function apiFetch<T>(
     if (!response.ok) {
       const code = body?.error?.code ?? body?.detail?.error?.code;
       const message = response.status === 500
-        ? "TrustSentinel encountered an internal error while processing this request."
+        ? "Cerviqon encountered an internal error while processing this request."
         : response.status === 422
           ? "Please check the transaction details and try again."
           : response.status === 401 && authenticated
@@ -125,9 +128,9 @@ export async function apiFetch<T>(
     return body as T;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      throw new Error("TrustSentinel API request timed out.");
+      throw new Error("Cerviqon API request timed out.");
     }
-    if (error instanceof TypeError) throw new Error("Unable to connect to TrustSentinel API.");
+    if (error instanceof TypeError) throw new Error("Unable to connect to Cerviqon API.");
     throw error;
   } finally {
     window.clearTimeout(timeout);

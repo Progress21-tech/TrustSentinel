@@ -7,7 +7,7 @@ class RiskRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", json_schema_extra={"examples": [{"transaction_id": "txn_001", "account_id": "acct_001", "amount": 850000, "currency": "NGN", "beneficiary_id": "ben_001", "device_id": "dev_001", "channel": "mobile_app"}]})
     transaction_id: str = Field(min_length=1, max_length=100)
     account_id: str = Field(min_length=1, max_length=80)
-    amount: float = Field(gt=0, le=1_000_000_000)
+    amount: float = Field(gt=0, le=1_000_000_000, multiple_of=0.01, description="Major currency units; at most two fractional digits.")
     currency: str = Field(default="NGN", min_length=3, max_length=8)
     beneficiary_id: str = Field(min_length=1, max_length=80)
     device_id: str = Field(min_length=1, max_length=80)
@@ -33,6 +33,9 @@ class SignalResponse(BaseModel):
 
 
 class RiskResponse(BaseModel):
+    assessment_id: str
+    request_id: str | None = None
+    data_completeness: dict[str, str | bool | None]
     transaction_id: str
     risk_score: float
     risk_band: str
@@ -43,7 +46,9 @@ class RiskResponse(BaseModel):
     ml_score: float | None
     ml_status: str = "available"
     model_version: str
+    hybrid_policy_version: str
     rule_version: str
+    feature_schema_version: str
     latency_ms: float
     signals: list[SignalResponse] = Field(default_factory=list)
     case_id: str | None = None

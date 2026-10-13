@@ -26,8 +26,8 @@ export default function Login() {
 
   return (
     <main className="login-page">
-      <section className="login-aside" aria-label="TrustSentinel overview">
-        <div className="brand-lockup"><span className="brand-mark"><ShieldCheck size={23} /></span><span><strong>TrustSentinel</strong><small>INNOVATEX · RISK INTELLIGENCE</small></span></div>
+      <section className="login-aside" aria-label="Cerviqon overview">
+        <div className="brand-lockup"><span className="brand-mark"><ShieldCheck size={23} /></span><span><strong>Cerviqon</strong><small>INNOVATEX · RISK INTELLIGENCE</small></span></div>
         <div className="login-message">
           <span className="eyebrow">FINANCIAL RISK OPERATIONS</span>
           <h1>See the signals.<br />Protect the trust.</h1>
@@ -39,7 +39,7 @@ export default function Login() {
         <div className="login-form-wrap">
           <div className="login-heading"><span className="login-icon"><LockKeyhole size={19} /></span><span className="eyebrow">SECURE WORKSPACE</span></div>
           <h2>Sign in</h2>
-          <p className="muted-copy">Use your TrustSentinel analyst credentials.</p>
+          <p className="muted-copy">Use your Cerviqon analyst credentials.</p>
           <form onSubmit={submit} className="login-form">
             <label htmlFor="email">Work email</label>
             <input id="email" name="email" type="email" autoComplete="username" required value={email} onChange={(event) => setEmail(event.target.value)} />
@@ -51,7 +51,7 @@ export default function Login() {
               {pending ? "Verifying credentials…" : <>Continue <ArrowRight size={17} /></>}
             </button>
           </form>
-          <p className="login-security">Credentials are verified by the TrustSentinel API. Your session is held only for this browser session.</p>
+          <p className="login-security">Credentials are verified by the Cerviqon API. Your session is held only for this browser session.</p>
         </div>
       </section>
     </main>

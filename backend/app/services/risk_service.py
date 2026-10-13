@@ -20,8 +20,8 @@ from app.ml.features import FEATURE_SCHEMA_VERSION
 logger = logging.getLogger("trustsentinel.risk")
 
 
-def _response(decision: RiskDecision, signals: list[RiskSignal] | None = None, case: Case | None = None) -> dict:
-    return {"transaction_id": decision.transaction_id, "risk_score": decision.risk_score, "risk_band": decision.risk_band,
+def _response(decision: RiskDecision, signals: list[RiskSignal] | None = None, case: Case | None = None, *, completeness: str = "unknown", request_id: str | None = None) -> dict:
+    return {"assessment_id": decision.decision_id, "request_id": request_id, "data_completeness": {"status": completeness, "has_account_history": True if completeness == "history_available" else False if completeness == "cold_start" else None}, "transaction_id": decision.transaction_id, "risk_score": decision.risk_score, "risk_band": decision.risk_band,
         "recommended_action": decision.recommended_action, "reason_codes": decision.reason_codes,
         "explanation": decision.explanation, "rule_score": decision.rule_score, "ml_score": decision.ml_score,
         "ml_status": "available" if decision.ml_score is not None else "unavailable_rules_only",
@@ -33,13 +33,30 @@ def _response(decision: RiskDecision, signals: list[RiskSignal] | None = None, c
                      "source_feature": s.source_feature} for s in (signals or [])], "case_id": case.case_id if case else None}
 
 
-def score_transaction(db: Session, request: RiskRequest) -> dict:
+def _same_assessment_input(txn: Transaction, request: RiskRequest) -> bool:
+    if (txn.account_id != request.account_id or txn.beneficiary_id != request.beneficiary_id
+            or txn.device_id != request.device_id or txn.currency.upper() != request.currency.upper()
+            or txn.channel != request.channel or abs(float(txn.amount) - request.amount) >= 0.005):
+        return False
+    if request.timestamp is None:
+        return True
+    stored = txn.timestamp.replace(tzinfo=timezone.utc) if txn.timestamp.tzinfo is None else txn.timestamp.astimezone(timezone.utc)
+    supplied = request.timestamp.replace(tzinfo=timezone.utc) if request.timestamp.tzinfo is None else request.timestamp.astimezone(timezone.utc)
+    return stored == supplied
+
+
+def score_transaction(db: Session, request: RiskRequest, request_id: str | None = None) -> dict:
     started = time.perf_counter()
     existing = db.scalar(select(RiskDecision).where(RiskDecision.transaction_id == request.transaction_id))
     if existing:
+        txn = db.scalar(select(Transaction).where(Transaction.transaction_id == request.transaction_id))
+        if txn is None or not _same_assessment_input(txn, request):
+            raise HTTPException(status_code=409, detail={"error": {"code": "IDEMPOTENCY_CONFLICT", "message": "This transaction identifier was already assessed with different transaction facts."}})
         signals = list(db.scalars(select(RiskSignal).where(RiskSignal.transaction_id == request.transaction_id)))
         case = db.scalar(select(Case).where(Case.transaction_id == request.transaction_id))
-        return _response(existing, signals, case)
+        audit = db.scalar(select(AuditLog).where(AuditLog.entity_id == existing.decision_id, AuditLog.event == "RISK_DECISION_CREATED"))
+        completeness = (audit.metadata_json or {}).get("data_completeness", "unknown") if audit else "unknown"
+        return _response(existing, signals, case, completeness=completeness, request_id=request_id)
     account = db.scalar(select(Account).where(Account.account_id == request.account_id))
     if account is None:
         # Identifiers identify an incoming event; they are not a membership gate.
@@ -67,6 +84,7 @@ def score_transaction(db: Session, request: RiskRequest) -> dict:
     db.flush()
     at = request.timestamp or datetime.now(timezone.utc)
     features = extract_features(db, account, request.amount, request.beneficiary_id, request.device_id, at)
+    completeness = "history_available" if features["has_account_history"] else "cold_start"
     signals = evaluate_signals(features)
     rule_score = score_rules(signals)
     ml_started = time.perf_counter()
@@ -112,7 +130,8 @@ def score_transaction(db: Session, request: RiskRequest) -> dict:
                         "rule_score": rule_score, "ml_score": ml_score,
                         "model_version": registry.model_version if ml_score is not None else "rules-only",
                         "hybrid_policy_version": registry.policy_version if ml_score is not None else "rules-only",
-                        "ml_status": "available" if ml_score is not None else "unavailable_rules_only"}))
+                        "ml_status": "available" if ml_score is not None else "unavailable_rules_only",
+                        "data_completeness": completeness, "request_id": request_id}))
     db.flush()
     latency = round((time.perf_counter() - started) * 1000, 3)
     decision.latency_ms = latency
@@ -125,4 +144,4 @@ def score_transaction(db: Session, request: RiskRequest) -> dict:
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "rules_score": round(rule_score, 3), "ml_score": ml_score, "hybrid_score": round(final_score, 3),
         "risk_band": band, "action": action, "ml_inference_latency_ms": ml_latency_ms, "decision_latency_ms": latency}))
-    return _response(decision, persisted_signals, case)
+    return _response(decision, persisted_signals, case, completeness=completeness, request_id=request_id)
