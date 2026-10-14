@@ -1,6 +1,6 @@
 # Synthetic evaluation status
 
-No current evaluation report is committed or generated in this checkout. The model artifact and generated data are absent, and Python could not be launched here; therefore no metric is reported.
+No current evaluation report is committed or generated in this checkout. The model artifact and generated data are absent, and Windows denied execution of the available Python binary here; therefore no metric is reported.
 
 The repository evaluator at scripts/evaluate_model.py requires a calibrated artifact and matching deterministic dataset hash. It expects account-disjoint train/validation/test splits with a held-out 2,000-row test set and reports proxy metrics for synthetic labels. These labels are generator assumptions, not observed bank fraud outcomes. Do not describe a result as real-world precision, fraud probability, loss reduction or payment prevention.
 

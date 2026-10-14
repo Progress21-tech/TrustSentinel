@@ -19,7 +19,7 @@ class ScenarioRequest(BaseModel):
 
 
 class CaseOutcomeRequest(BaseModel):
-    outcome: Literal["CONFIRMED_SCAM", "LEGITIMATE", "NEEDS_REVIEW", "ESCALATED"]
+    outcome: Literal["CONFIRMED_SCAM", "FALSE_POSITIVE", "LEGITIMATE", "NEEDS_REVIEW", "ESCALATED"]
     notes: str | None = Field(default=None, max_length=2000)
     analyst_id: str = Field(default="sandbox-analyst", max_length=80)
 

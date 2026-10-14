@@ -239,7 +239,7 @@ export function getAuditEvents(limit = 100) {
 export function updateCaseOutcome(
   id: string,
   data: {
-    outcome: "CONFIRMED_SCAM" | "LEGITIMATE" | "NEEDS_REVIEW" | "ESCALATED";
+    outcome: "CONFIRMED_SCAM" | "FALSE_POSITIVE" | "LEGITIMATE" | "NEEDS_REVIEW" | "ESCALATED";
     notes?: string;
     analyst_id: string;
   },

@@ -19,7 +19,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from app.core.config import settings
 from app.db.database import Base
-from app.db.models import AuditLog, Case, RiskDecision, RiskSignal, Transaction
+from app.db.models import AuditLog, Case, RiskDecision, RiskSignal, TenantIdentifier, Transaction
 from app.ml.features import FEATURES, FEATURE_SCHEMA_VERSION, build_ml_features, vector
 from app.ml.predict import ModelRegistry, registry
 from app.risk_engine.rules import action_for, evaluate_signals, risk_band, score_rules
@@ -152,11 +152,14 @@ def evaluate() -> dict:
     try:
         for name in SCENARIOS:
             result = run_scenario(session, name)
-            transaction = session.scalar(select(Transaction).where(Transaction.transaction_id == result["transaction_id"]))
-            decision = session.scalar(select(RiskDecision).where(RiskDecision.transaction_id == result["transaction_id"]))
-            signal_count = len(list(session.scalars(select(RiskSignal).where(RiskSignal.transaction_id == result["transaction_id"]))))
-            audit = session.scalar(select(AuditLog).where(AuditLog.entity_id == (decision.decision_id if decision else "")))
-            case = session.scalar(select(Case).where(Case.transaction_id == result["transaction_id"]))
+            transaction_id = session.scalar(select(TenantIdentifier.internal_id).where(
+                TenantIdentifier.institution_id == "default", TenantIdentifier.entity_type == "transaction",
+                TenantIdentifier.external_id == result["transaction_id"]))
+            transaction = session.scalar(select(Transaction).where(Transaction.institution_id == "default", Transaction.transaction_id == transaction_id))
+            decision = session.scalar(select(RiskDecision).where(RiskDecision.institution_id == "default", RiskDecision.transaction_id == transaction_id))
+            signal_count = len(list(session.scalars(select(RiskSignal).where(RiskSignal.institution_id == "default", RiskSignal.transaction_id == transaction_id))))
+            audit = session.scalar(select(AuditLog).where(AuditLog.institution_id == "default", AuditLog.entity_id == (decision.decision_id if decision else "")))
+            case = session.scalar(select(Case).where(Case.institution_id == "default", Case.transaction_id == transaction_id))
             scenario_runs.append({
                 "scenario": name, "transaction_id": result["transaction_id"], "risk_score": result["risk_score"],
                 "risk_band": result["risk_band"], "recommended_action": result["recommended_action"],

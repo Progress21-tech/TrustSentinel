@@ -7,6 +7,7 @@ import { ArrowLeft, CheckCircle2, ShieldAlert } from "lucide-react";
 
 const outcomes = [
   { value: "CONFIRMED_SCAM", label: "Confirm scam" },
+  { value: "FALSE_POSITIVE", label: "Mark false positive" },
   { value: "LEGITIMATE", label: "Mark legitimate" },
   { value: "NEEDS_REVIEW", label: "Needs review" },
   { value: "ESCALATED", label: "Escalate" },

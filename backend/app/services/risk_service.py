@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.tenancy import external_identifier, resolve_identifier
+from app.core.tenancy import resolve_identifier
 from app.db.models import Account, AuditLog, Beneficiary, Case, Device, Intervention, RiskDecision, RiskSignal, Transaction, utcnow
 from app.ml.predict import registry
 from app.risk_engine.rules import Signal, action_for, evaluate_signals, explain, risk_band, score_rules
@@ -21,15 +21,16 @@ from app.ml.features import FEATURE_SCHEMA_VERSION
 logger = logging.getLogger("trustsentinel.risk")
 
 
-def _response(decision: RiskDecision, signals: list[RiskSignal] | None = None, case: Case | None = None, *, completeness: str = "unknown", request_id: str | None = None, transaction_id: str | None = None) -> dict:
+def _response(decision: RiskDecision, signals: list[RiskSignal] | None = None, case: Case | None = None, *, completeness: str = "unknown", request_id: str | None = None, transaction_id: str | None = None,
+              policy_version: str | None = None, feature_schema_version: str | None = None) -> dict:
     return {"assessment_id": decision.decision_id, "request_id": request_id, "data_completeness": {"status": completeness, "has_account_history": True if completeness == "history_available" else False if completeness == "cold_start" else None}, "transaction_id": transaction_id or decision.transaction_id, "risk_score": decision.risk_score, "risk_band": decision.risk_band,
         "recommended_action": decision.recommended_action, "reason_codes": decision.reason_codes,
         "explanation": decision.explanation, "rule_score": decision.rule_score, "ml_score": decision.ml_score,
         "ml_status": "available" if decision.ml_score is not None else "unavailable_rules_only",
-        "feature_schema_version": FEATURE_SCHEMA_VERSION,
+        "feature_schema_version": feature_schema_version or FEATURE_SCHEMA_VERSION,
         "model_version": decision.model_version, "rule_version": decision.rule_version, "latency_ms": decision.latency_ms,
-        "hybrid_policy_version": decision.model_version.split("+", 1)[1] if "+" in decision.model_version else (
-            "hybrid-policy-v1.0.0" if decision.model_version.startswith("iforest-") else "rules-only"),
+        "hybrid_policy_version": policy_version or (decision.model_version.split("+", 1)[1] if "+" in decision.model_version else (
+            "hybrid-policy-v1.0.0" if decision.model_version.startswith("iforest-") else "rules-only")),
         "signals": [{"signal_type": s.signal_type, "triggered": True, "severity": s.severity, "evidence": s.evidence,
                      "source_feature": s.source_feature} for s in (signals or [])], "case_id": case.case_id if case else None}
 
@@ -65,8 +66,12 @@ def score_transaction(db: Session, request: RiskRequest, request_id: str | None 
         signals = list(db.scalars(select(RiskSignal).where(RiskSignal.institution_id == institution_id, RiskSignal.transaction_id == request.transaction_id)))
         case = db.scalar(select(Case).where(Case.institution_id == institution_id, Case.transaction_id == request.transaction_id))
         audit = db.scalar(select(AuditLog).where(AuditLog.institution_id == institution_id, AuditLog.entity_id == existing.decision_id, AuditLog.event == "RISK_DECISION_CREATED"))
-        completeness = (audit.metadata_json or {}).get("data_completeness", "unknown") if audit else "unknown"
-        return _response(existing, signals, case, completeness=completeness, request_id=request_id, transaction_id=external_transaction_id)
+        audit_metadata = (audit.metadata_json or {}) if audit else {}
+        completeness = audit_metadata.get("data_completeness", "unknown")
+        return _response(existing, signals, case, completeness=completeness, request_id=request_id,
+            transaction_id=external_transaction_id,
+            policy_version=audit_metadata.get("hybrid_policy_version"),
+            feature_schema_version=audit_metadata.get("feature_schema_version"))
     account = db.scalar(select(Account).where(Account.institution_id == institution_id, Account.account_id == request.account_id))
     if account is None:
         # Identifiers identify an incoming event; they are not a membership gate.
@@ -139,6 +144,7 @@ def score_transaction(db: Session, request: RiskRequest, request_id: str | None 
                         "rule_score": rule_score, "ml_score": ml_score,
                         "model_version": registry.model_version if ml_score is not None else "rules-only",
                         "hybrid_policy_version": registry.policy_version if ml_score is not None else "rules-only",
+                        "feature_schema_version": FEATURE_SCHEMA_VERSION,
                         "ml_status": "available" if ml_score is not None else "unavailable_rules_only",
                         "data_completeness": completeness, "request_id": request_id}))
     db.flush()
@@ -153,4 +159,7 @@ def score_transaction(db: Session, request: RiskRequest, request_id: str | None 
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "rules_score": round(rule_score, 3), "ml_score": ml_score, "hybrid_score": round(final_score, 3),
         "risk_band": band, "action": action, "ml_inference_latency_ms": ml_latency_ms, "decision_latency_ms": latency}))
-    return _response(decision, persisted_signals, case, completeness=completeness, request_id=request_id, transaction_id=external_transaction_id)
+    return _response(decision, persisted_signals, case, completeness=completeness, request_id=request_id,
+        transaction_id=external_transaction_id,
+        policy_version=registry.policy_version if ml_score is not None else "rules-only",
+        feature_schema_version=FEATURE_SCHEMA_VERSION)

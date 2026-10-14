@@ -3,6 +3,7 @@ import re
 import time
 import uuid
 from fastapi import FastAPI, Request
+from fastapi.openapi.utils import get_openapi
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import audit, auth, cases, health, metrics, risk, scenarios, transactions
 from app.core.config import settings
@@ -15,6 +16,25 @@ logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.I
 logger = logging.getLogger("trustsentinel")
 app = FastAPI(title="Cerviqon API", version=settings.app_version,
     description="Synthetic-data prototype for contextual social-engineering risk assessment. Scores are advisory; the service does not move or block real funds.")
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    schema = get_openapi(title=app.title, version=app.version, description=app.description, routes=app.routes)
+    schema.setdefault("components", {}).setdefault("securitySchemes", {})["BearerAuth"] = {"type": "http", "scheme": "bearer"}
+    for path, path_item in schema.get("paths", {}).items():
+        if path == "/v1/auth/session":
+            for operation in path_item.values():
+                if isinstance(operation, dict) and "operationId" in operation:
+                    operation["security"] = [{"BearerAuth": []}]
+        elif path.startswith("/v1/") and path != "/v1/auth/login":
+            for operation in path_item.values():
+                if isinstance(operation, dict) and "operationId" in operation:
+                    operation["security"] = [{"APIKeyHeader": []}, {"BearerAuth": []}]
+    app.openapi_schema = schema
+    return app.openapi_schema
+
+app.openapi = custom_openapi
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origin_list or [], allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type", "X-API-Key", "Authorization", "X-Request-ID"])
 register_error_handlers(app)

@@ -12,6 +12,7 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements-dev.txt
 Copy-Item .env.example .env
+alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
@@ -92,7 +93,7 @@ alembic upgrade head
 
 The institution-tenancy migration adds a `default` tenant to existing rows and a tenant-scoped external identifier mapping. New deployments run Alembic before the server starts. Keep a database backup and follow the normal deployment rollback plan; the migration is additive and its downgrade intentionally preserves tenant data.
 
-The application also creates missing tables on startup to keep the MVP demo simple. Production schema evolution should use Alembic migrations.
+The app creates missing tables on startup for a new local database. Run Alembic first for both new and existing databases; SQLAlchemy create_all does not alter existing tables.
 
 ## API overview
 

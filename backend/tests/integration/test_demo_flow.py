@@ -2,7 +2,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from app.db.database import Base
-from app.db.models import AuditLog, Case, RiskDecision, RiskSignal, Transaction
+from app.db.models import AuditLog, Case, RiskDecision, RiskSignal, TenantIdentifier, Transaction
 from app.services.demo_service import run_scenario
 
 def test_scenario_persists_decision_signals_case_and_outcome_audit():
@@ -13,8 +13,12 @@ def test_scenario_persists_decision_signals_case_and_outcome_audit():
     assert result["transaction_id"] == "DEMO-COMBINED-001"
     assert result["reason_codes"]
     assert result["case_id"]
-    assert session.scalar(select(Transaction).where(Transaction.transaction_id == result["transaction_id"]))
-    assert session.scalar(select(RiskDecision).where(RiskDecision.transaction_id == result["transaction_id"]))
-    assert session.scalar(select(RiskSignal).where(RiskSignal.transaction_id == result["transaction_id"]))
+    internal_transaction_id = session.scalar(select(TenantIdentifier.internal_id).where(
+        TenantIdentifier.institution_id == "default", TenantIdentifier.entity_type == "transaction",
+        TenantIdentifier.external_id == result["transaction_id"]))
+    assert internal_transaction_id
+    assert session.scalar(select(Transaction).where(Transaction.transaction_id == internal_transaction_id))
+    assert session.scalar(select(RiskDecision).where(RiskDecision.transaction_id == internal_transaction_id))
+    assert session.scalar(select(RiskSignal).where(RiskSignal.transaction_id == internal_transaction_id))
     assert session.scalar(select(AuditLog).where(AuditLog.entity_id == result["case_id"]))
     session.close(); engine.dispose()

@@ -68,7 +68,7 @@ def set_outcome(case_id: str, request: CaseOutcomeRequest, principal: TenantPrin
     if not case:
         raise HTTPException(404, detail={"error": {"code": "CASE_NOT_FOUND", "message": "Case was not found."}})
     old = case.status
-    case.status = "RESOLVED" if request.outcome in {"CONFIRMED_SCAM", "LEGITIMATE"} else ("ESCALATED" if request.outcome == "ESCALATED" else "IN_REVIEW")
+    case.status = "RESOLVED" if request.outcome in {"CONFIRMED_SCAM", "FALSE_POSITIVE", "LEGITIMATE"} else ("ESCALATED" if request.outcome == "ESCALATED" else "IN_REVIEW")
     case.outcome, case.analyst_id, case.notes, case.updated_at = request.outcome, principal.subject, request.notes, utcnow()
     db.add(AuditLog(institution_id=institution_id, actor=principal.subject, event="CASE_OUTCOME_RECORDED",
         entity_type="case", entity_id=case.case_id,

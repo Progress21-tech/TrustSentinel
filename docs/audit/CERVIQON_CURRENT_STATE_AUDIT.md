@@ -85,3 +85,10 @@ Preserve dashboard routes/login, scoring form, backend scenario lab, case/outcom
 ## Implementation follow-up (after baseline)
 
 The original Phase 0 findings above are retained as baseline. Later changes added request/assessment IDs and cold-start status to the score response, persisted those fields in risk-decision audit metadata, rejected changed-payload transaction-ID reuse with 409, added a real-backend synthetic integration client, updated the response schema/docs/dashboard, and added regression assertions. These changes are not runtime verified. The original A4 and A5 risks are addressed at the direct scoring endpoint for single-tenant operation, subject to testing. A3 tenant isolation remains a release blocker; A11 test/build/evaluation remains unverified. The acceptance-gated landing page has not been built. Full gate status is in docs/MVP_IMPLEMENTATION_SUMMARY.md.
+
+
+## Post-baseline implementation review — 2026-10-14
+
+The findings above describe the preserved Phase 0 baseline and are not a current-state report. Subsequent implementation added institution principals and per-institution API keys, tenant ID mapping and migration, scoped scoring and read/write routes, request/assessment traceability, idempotency conflict behavior, the direct scoring contract, a real-backend integration simulator, and false-positive case outcomes. Scenario tests and the synthetic evaluator were updated to query mapped transaction IDs. Generated OpenAPI now describes API-key and bearer alternatives.
+
+Code review also found and corrected an indentation syntax error in the backend security test file. The Windows environment denied execution of its available Python executable; tests, migrations, evaluation, and production build have therefore not been executed. Treat all changes as implemented but runtime-unverified. Phase 7 remains gated on an acceptance pass; it has not been started. Current acceptance and verification statuses are in docs/MVP_IMPLEMENTATION_SUMMARY.md.

@@ -21,11 +21,17 @@ def test_openapi_declares_api_key_for_protected_routes_and_keeps_health_public()
         "in": "header",
         "name": "X-API-Key",
     }
+    assert schema["components"]["securitySchemes"]["BearerAuth"] == {"type": "http", "scheme": "bearer"}
     for path, path_item in schema["paths"].items():
         if path.startswith("/v1/"):
             operations = [item for item in path_item.values() if isinstance(item, dict) and "operationId" in item]
             assert operations, f"No OpenAPI operations found for {path}"
-            assert all(item.get("security") == [{"APIKeyHeader": []}] for item in operations), path
+            if path == "/v1/auth/login":
+                assert all("security" not in item for item in operations), path
+            elif path == "/v1/auth/session":
+                assert all(item.get("security") == [{"BearerAuth": []}] for item in operations), path
+            else:
+                assert all(item.get("security") == [{"APIKeyHeader": []}, {"BearerAuth": []}] for item in operations), path
     assert "security" not in schema["paths"]["/health"]["get"]
     assert "security" not in schema["paths"]["/ready"]["get"]
 
@@ -44,6 +50,8 @@ def test_protected_scenario_requires_configured_key_and_allows_valid_key(monkeyp
 
     app.dependency_overrides[get_db] = override_get_db
     monkeypatch.setattr(settings, "api_key_secret", "test-secret-from-settings")
+    monkeypatch.setattr(settings, "institution_api_keys_json", "{}")
+    monkeypatch.setattr(settings, "app_env", "development")
     try:
         with TestClient(app) as client:
             assert client.post("/v1/sandbox/scenario", json={"scenario": "normal"}).status_code == 401
@@ -75,6 +83,8 @@ def test_protected_scenario_requires_configured_key_and_allows_valid_key(monkeyp
 
 def test_unexpected_errors_keep_generic_response_and_log_traceback(monkeypatch, caplog):
     monkeypatch.setattr(settings, "api_key_secret", "")
+    monkeypatch.setattr(settings, "institution_api_keys_json", "{}")
+    monkeypatch.setattr(settings, "app_env", "development")
 
     def fail_scenario(*args, **kwargs):
         raise RuntimeError("scenario failure detail")
@@ -126,6 +136,8 @@ def test_protected_risk_score_route_persists_existing_contract(monkeypatch):
 
     app.dependency_overrides[get_db] = override_get_db
     monkeypatch.setattr(settings, "api_key_secret", "risk-route-test-key")
+    monkeypatch.setattr(settings, "institution_api_keys_json", "{}")
+    monkeypatch.setattr(settings, "app_env", "development")
     try:
         with TestClient(app) as client:
             response = client.post("/v1/risk/score", json={
@@ -170,5 +182,15 @@ def test_protected_risk_score_route_persists_existing_contract(monkeypatch):
             assert invalid.status_code == 422
             assert invalid.json()["error"]["code"] == "VALIDATION_ERROR"
         finally:
-        app.dependency_overrides.pop(get_db, None)
-        engine.dispose()
+            app.dependency_overrides.pop(get_db, None)
+            engine.dispose()
+
+
+def test_duplicate_institution_api_keys_fail_closed(monkeypatch):
+    monkeypatch.setattr(settings, "app_env", "production")
+    monkeypatch.setattr(settings, "api_key_secret", "")
+    monkeypatch.setattr(settings, "institution_api_keys_json", '{"bank-a":"shared-secret","bank-b":"shared-secret"}')
+    with TestClient(app) as client:
+        response = client.get("/v1/metrics/summary", headers={"X-API-Key": "shared-secret"})
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "AUTH_CONFIGURATION_INVALID"

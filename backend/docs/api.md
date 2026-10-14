@@ -37,3 +37,6 @@ Choices are cold-start, established and high-value. This client uses Python's st
 - GET /v1/metrics/summary (aggregates only the authenticated institution's data)
 
 Tenant separation is resolved from the authenticated API key or analyst session and applied to transaction, entity history, decision, signal, case, intervention, audit, and metrics records. Existing rows migrate to the reserved default tenant. Configure analysts in ANALYST_USERS_JSON as an object mapping each email to {"password_hash":"...","institution_id":"..."}; otherwise the legacy single analyst settings are assigned ANALYST_INSTITUTION_ID. Tenant scoping is implemented and cross-tenant regression tests are included but have not been executed in this environment; run them against the deployment database before using institution data.
+
+
+Case outcomes may be `CONFIRMED_SCAM`, `FALSE_POSITIVE`, `LEGITIMATE`, `NEEDS_REVIEW`, or `ESCALATED`. `NEEDS_REVIEW` remains unresolved; the others are partner-provided reviewer findings. Outcomes are audit records and are not fed automatically into model training.

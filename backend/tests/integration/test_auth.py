@@ -36,6 +36,24 @@ def test_login_issues_a_validated_expiring_session(monkeypatch):
         assert principal.institution_id == "default"
 
 
+def test_analyst_session_is_bound_to_configured_institution(monkeypatch):
+    import json
+    monkeypatch.setattr(settings, "analyst_users_json", json.dumps({
+        "bank-analyst@example.test": {"password_hash": _password_hash("correct horse battery staple"), "institution_id": "bank-a"}
+    }))
+    monkeypatch.setattr(settings, "session_signing_secret", "test-session-signing-secret-at-least-32")
+    with TestClient(app) as client:
+        response = client.post("/v1/auth/login", json={
+            "email": "bank-analyst@example.test", "password": "correct horse battery staple"})
+        assert response.status_code == 200
+        token = response.json()["access_token"]
+        session = client.get("/v1/auth/session", headers={"Authorization": f"Bearer {token}"})
+        assert session.status_code == 200
+        assert session.json()["institution_id"] == "bank-a"
+        principal = require_api_key(None, f"Bearer {token}")
+        assert principal.institution_id == "bank-a"
+
+
 def test_invalid_bearer_session_is_rejected(monkeypatch):
     monkeypatch.setattr(settings, "session_signing_secret", "test-session-signing-secret-at-least-32")
     with TestClient(app) as client:

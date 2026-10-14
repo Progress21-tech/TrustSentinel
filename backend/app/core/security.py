@@ -36,7 +36,11 @@ def _api_clients() -> dict[str, str]:
             validate_institution_id(str(institution_id))
             if not isinstance(key, str) or not key:
                 raise ValueError("institution API keys must be non-empty strings")
+            if key in clients.values():
+                raise ValueError("each institution must have a distinct API key")
             clients[str(institution_id)] = key
+        if settings.api_key_secret and settings.api_key_secret in clients.values():
+            raise ValueError("legacy and institution API keys must be distinct")
         return clients
     except (ValueError, TypeError, json.JSONDecodeError):
         raise _auth_error(503, "AUTH_CONFIGURATION_INVALID", "Institution API credentials are misconfigured.")
