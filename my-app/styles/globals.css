@@ -1,24 +1,28 @@
 :root {
-  --ink: #343434;
-  --ink-soft: #343434;
-  --muted: rgba(52, 52, 52, .72);
-  --paper: #f2f7fa;
+  --mist: #e9efe7;
+  --sage: #b8cbae;
+  --clay: #d9b9a9;
+  --forest: #35453b;
+  --ink: #35453b;
+  --ink-soft: #4f5d53;
+  --muted: rgba(53, 69, 59, .72);
+  --paper: #f7f8f5;
   --surface: #ffffff;
-  --surface-tint: #f2f7fa;
-  --line: #c8d1d9;
-  --line-strong: #c8d1d9;
-  --nav: #164b82;
+  --surface-tint: #e9efe7;
+  --line: #d6ded3;
+  --line-strong: #b8cbae;
+  --nav: #35453b;
   --nav-soft: rgba(255, 255, 255, .13);
-  --accent: #164b82;
-  --accent-strong: #164b82;
-  --accent-wash: #e7eff6;
-  --blue: #164b82;
-  --blue-wash: #e7eff6;
-  --text-primary: #343434;
-  --border: #c8d1d9;
-  --font-display: "Telegraf", "Arial", sans-serif;
-  --font-body: "TT Hoves", "Segoe UI", Arial, sans-serif;
-  --font-caption: "Noto Sans", "Segoe UI", Arial, sans-serif;
+  --accent: #35453b;
+  --accent-strong: #35453b;
+  --accent-wash: #e9efe7;
+  --blue: #35453b;
+  --blue-wash: #e9efe7;
+  --text-primary: #35453b;
+  --border: #d6ded3;
+  --font-display: "Space Grotesk", "Segoe UI", Arial, sans-serif;
+  --font-body: Inter, "Segoe UI", Arial, sans-serif;
+  --font-caption: Inter, "Segoe UI", Arial, sans-serif;
   --type-display: clamp(39px, 5vw, 64px);
   --type-h1: clamp(25px, 2.7vw, 34px);
   --type-h2: 15px;
@@ -29,18 +33,18 @@
   --weight-medium: 500;
   --weight-bold: 700;
   --weight-heavy: 800;
-  --radius-card: 12px;
-  --radius-control: 7px;
-  --shadow-card: 0 10px 30px rgba(22, 75, 130, .045);
-  --focus-ring: rgba(22, 75, 130, .38);
-  --brand-hover: #103a65;
+  --radius-card: 8px;
+  --radius-control: 5px;
+  --shadow-card: 0 8px 24px rgba(53, 69, 59, .055);
+  --focus-ring: rgba(85, 123, 98, .45);
+  --brand-hover: #29392f;
   --status-warning: #bb8b40;
   --status-online: #4bd0a9;
   --status-online-wash: rgba(75, 208, 169, .12);
   --status-error: #b34242;
   --status-error-wash: #fff8f7;
   --status-error-border: #f0d0ce;
-  --status-info-wash: #e7eff6;
+  --status-info-wash: #e9efe7;
   --amber: #aa6a14;
   --amber-wash: #fbf2df;
   --orange: #b45528;
@@ -65,9 +69,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .sidebar { position: fixed; z-index: 10; inset: 0 auto 0 0; display: flex; flex-direction: column; width: var(--sidebar-width); padding: 26px 17px 18px; background: var(--nav); color: #fff; }
 .brand-lockup { display: flex; align-items: center; gap: 11px; min-width: 0; }
 .sidebar-brand { padding: 0 7px 28px; }
-.brand-mark { display: grid; flex: 0 0 39px; width: 39px; height: 39px; place-items: center; border-radius: 11px; background: rgba(255,255,255,.14); color: #fff; }
 .brand-lockup strong, .brand-lockup small { display: block; }
-.brand-lockup strong { font-size: 14px; letter-spacing: -.02em; }
+.brand-lockup strong { font-family: var(--font-display); font-size: 14px; letter-spacing: .1em; }
 .brand-lockup small { margin-top: 5px; color: rgba(255,255,255,.72); font-size: 8px; font-weight: var(--weight-bold); letter-spacing: .11em; white-space: nowrap; }
 .nav-caption { padding: 15px 11px 9px; color: rgba(255,255,255,.66); font-family: var(--font-caption); font-size: var(--type-caption); font-weight: var(--weight-bold); letter-spacing: .13em; }
 .sidebar nav { display: grid; gap: 4px; }
@@ -247,7 +250,6 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 @media (max-width: 720px) {
   .sidebar { position: sticky; inset: auto; width: auto; height: auto; padding: 11px 13px; }
   .sidebar-brand { padding: 0 2px 9px; }
-  .brand-mark { width: 33px; height: 33px; flex-basis: 33px; }
   .nav-caption, .sidebar-spacer, .system-status, .analyst-profile { display: none; }
   .sidebar nav { display: flex; gap: 5px; overflow-x: auto; padding-bottom: 2px; }
   .nav-item { flex: 0 0 auto; min-height: 34px; padding: 0 9px; font-size: 9px; }

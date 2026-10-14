@@ -27,6 +27,6 @@ Synthetic scenarios create persisted synthetic records. They do not represent li
 
 ## Visual design source
 
-The public landing page uses the Eucalyptus palette specified for Cerviqon and a typographic wordmark. The analyst workspace retains its existing blue visual tokens. Space Grotesk and Inter are requested by the landing page when available, with system fallbacks; no font files are bundled.
+The public landing page, analyst sign-in, and workspace share the Cerviqon Eucalyptus design system: Mist Green `#E9EFE7`, Soft Sage `#B8CBAE`, Dusty Clay `#D9B9A9`, and Forest Graphite `#35453B`. Shared UI colors, surfaces, borders, focus rings, and typography are defined in `styles/globals.css`; the public page's responsive layout and decorative treatments are in `styles/landing.css`. The analyst and login headers use a typographic wordmark. Space Grotesk and Inter are preferred with system fallbacks; licensed font files are not bundled, so exact font rendering depends on installed fonts.
 
-The Cerviqon visual tokens are based on the supplied pitch deck's embedded RGB vector colors: `#F2F7FA` background, `#164B82` brand blue, `#343434` text, `#C8D1D9` dividers, plus white and black. `#E7EFF6` is a light brand-blue tint for interactive surfaces. Risk and service-status colors remain semantic. The deck embeds Telegraf (UltraLight, Regular, Bold), TT Hoves Regular, and Noto Sans Bold. Those licensed font files are not included in the frontend, so the CSS names them first and falls back to installed system sans-serif fonts; exact font rendering requires appropriately licensed font files.
+Risk and service-status colors remain semantic so risk levels and service conditions remain distinguishable from the brand palette.

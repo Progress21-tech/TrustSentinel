@@ -26,6 +26,7 @@ Status date: 2026-10-14. Baseline audit: docs/audit/CERVIQON_CURRENT_STATE_AUDIT
 - API and analyst dashboard use the same scoring engine; the simulator calls the live API, not a fabricated response.
 - Added FALSE_POSITIVE investigator outcome; reviewer outcomes remain separate from model-training data.
 - Corrected integration tests and evaluation queries to account for mapped internal transaction IDs; added tenant assertions for cross-institution reads/writes and aggregates.
+- Applied the Eucalyptus design tokens through the shared UI stylesheet for the landing page, analyst sign-in, and dashboard; aligned analyst wordmarks with the typographic Cerviqon treatment. Visual/runtime verification remains unavailable here.
 
 ## Verification results
 

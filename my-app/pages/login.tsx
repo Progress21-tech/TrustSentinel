@@ -1,6 +1,6 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/router";
-import { ArrowRight, LockKeyhole, ShieldCheck } from "lucide-react";
+import { ArrowRight, LockKeyhole } from "lucide-react";
 import { login } from "@/lib/api";
 
 export default function Login() {
@@ -27,7 +27,7 @@ export default function Login() {
   return (
     <main className="login-page">
       <section className="login-aside" aria-label="Cerviqon overview">
-        <div className="brand-lockup"><span className="brand-mark"><ShieldCheck size={23} /></span><span><strong>Cerviqon</strong><small>INNOVATEX · RISK INTELLIGENCE</small></span></div>
+        <div className="brand-lockup"><span><strong>CERVIQON</strong><small>SEE RISK IN CONTEXT</small></span></div>
         <div className="login-message">
           <span className="eyebrow">FINANCIAL RISK OPERATIONS</span>
           <h1>See the signals.<br />Protect the trust.</h1>
