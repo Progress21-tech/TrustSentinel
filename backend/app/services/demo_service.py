@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import Account, Beneficiary, Customer, Device, Transaction
+from app.core.tenancy import resolve_identifier
 from app.schemas.risk import RiskRequest
 from app.services.risk_service import score_transaction
 
@@ -20,45 +21,52 @@ SCENARIOS = {
 }
 
 
-def _ensure_scenario(db: Session, scenario: str):
+def _ensure_scenario(db: Session, scenario: str, institution_id: str):
     txn_id, account_id, amount, new_ben, new_device, recovery, risky, velocity = SCENARIOS[scenario]
-    customer_id = f"customer-{account_id}"
-    customer = db.scalar(select(Customer).where(Customer.customer_id == customer_id))
+    account_db_id = resolve_identifier(db, institution_id, "account", account_id, Account, "account_id")
+    customer_external = f"customer-{account_id}"
+    customer_id = resolve_identifier(db, institution_id, "customer", customer_external, Customer, "customer_id")
+    customer = db.scalar(select(Customer).where(Customer.institution_id == institution_id, Customer.customer_id == customer_id))
     now = DEMO_AT
     if customer is None:
-        customer = Customer(customer_id=customer_id, risk_profile="HIGH_VALUE" if scenario == "legitimate_high_value" else "NORMAL")
+        customer = Customer(institution_id=institution_id, customer_id=customer_id, risk_profile="HIGH_VALUE" if scenario == "legitimate_high_value" else "NORMAL")
         db.add(customer); db.flush()
-    account = db.scalar(select(Account).where(Account.account_id == account_id))
+    account = db.scalar(select(Account).where(Account.institution_id == institution_id, Account.account_id == account_db_id))
     if account is None:
-        account = Account(account_id=account_id, customer_id=customer_id, created_at=now - timedelta(days=900),
+        account = Account(institution_id=institution_id, account_id=account_db_id, customer_id=customer_id, created_at=now - timedelta(days=900),
                           last_recovery_at=now - timedelta(days=1) if recovery else None)
         db.add(account); db.flush()
-    ben_id = f"beneficiary-{account_id}-new" if new_ben or risky else f"beneficiary-{account_id}-trusted"
-    dev_id = f"device-{account_id}-new" if new_device else f"device-{account_id}-trusted"
-    ben = db.scalar(select(Beneficiary).where(Beneficiary.beneficiary_id == ben_id))
+    ben_external = f"beneficiary-{account_id}-new" if new_ben or risky else f"beneficiary-{account_id}-trusted"
+    dev_external = f"device-{account_id}-new" if new_device else f"device-{account_id}-trusted"
+    ben_id = resolve_identifier(db, institution_id, "beneficiary", ben_external, Beneficiary, "beneficiary_id")
+    dev_id = resolve_identifier(db, institution_id, "device", dev_external, Device, "device_id")
+    ben = db.scalar(select(Beneficiary).where(Beneficiary.institution_id == institution_id, Beneficiary.beneficiary_id == ben_id))
     if ben is None:
-        db.add(Beneficiary(beneficiary_id=ben_id, first_seen_at=now - timedelta(days=90) if not new_ben else now,
+        db.add(Beneficiary(institution_id=institution_id, beneficiary_id=ben_id, first_seen_at=now - timedelta(days=90) if not new_ben else now,
                            risk_score=85 if risky else 0))
-    dev = db.scalar(select(Device).where(Device.device_id == dev_id, Device.account_id == account_id))
+    dev = db.scalar(select(Device).where(Device.institution_id == institution_id, Device.device_id == dev_id, Device.account_id == account_db_id))
     if dev is None:
-        db.add(Device(device_id=dev_id, account_id=account_id, first_seen_at=now - timedelta(days=180) if not new_device else now,
+        db.add(Device(institution_id=institution_id, device_id=dev_id, account_id=account_db_id, first_seen_at=now - timedelta(days=180) if not new_device else now,
                       risk_flags=["synthetic_risk"] if risky and new_device else []))
     db.flush()
-    if not db.scalar(select(Transaction).where(Transaction.transaction_id == txn_id)):
+    txn_db_id = resolve_identifier(db, institution_id, "transaction", txn_id, Transaction, "transaction_id")
+    if not db.scalar(select(Transaction).where(Transaction.institution_id == institution_id, Transaction.transaction_id == txn_db_id)):
         baseline = 2_000_000 if scenario == "legitimate_high_value" else 20_000
-        hist_ben = f"beneficiary-{account_id}-trusted"
-        hist_device = f"device-{account_id}-trusted"
-        db.add(Beneficiary(beneficiary_id=hist_ben, first_seen_at=now - timedelta(days=365), risk_score=0)) if db.scalar(select(Beneficiary).where(Beneficiary.beneficiary_id == hist_ben)) is None else None
-        db.add(Device(device_id=hist_device, account_id=account_id, first_seen_at=now - timedelta(days=365), risk_flags=[])) if db.scalar(select(Device).where(Device.device_id == hist_device, Device.account_id == account_id)) is None else None
+        hist_ben_external = f"beneficiary-{account_id}-trusted"
+        hist_device_external = f"device-{account_id}-trusted"
+        hist_ben = resolve_identifier(db, institution_id, "beneficiary", hist_ben_external, Beneficiary, "beneficiary_id")
+        hist_device = resolve_identifier(db, institution_id, "device", hist_device_external, Device, "device_id")
+        db.add(Beneficiary(institution_id=institution_id, beneficiary_id=hist_ben, first_seen_at=now - timedelta(days=365), risk_score=0)) if db.scalar(select(Beneficiary).where(Beneficiary.institution_id == institution_id, Beneficiary.beneficiary_id == hist_ben)) is None else None
+        db.add(Device(institution_id=institution_id, device_id=hist_device, account_id=account_db_id, first_seen_at=now - timedelta(days=365), risk_flags=[])) if db.scalar(select(Device).where(Device.institution_id == institution_id, Device.device_id == hist_device, Device.account_id == account_db_id)) is None else None
         for index in range(max(3, velocity)):
-            db.add(Transaction(transaction_id=f"hist-{account_id}-{index}", account_id=account_id, beneficiary_id=hist_ben,
+            db.add(Transaction(transaction_id=resolve_identifier(db, institution_id, "transaction", f"hist-{account_id}-{index}", Transaction, "transaction_id"), institution_id=institution_id, account_id=account_db_id, beneficiary_id=hist_ben,
                 device_id=hist_device, amount=baseline, currency="NGN", channel="mobile_app",
                 timestamp=now - timedelta(minutes=5 * (index + 1)) if index < velocity else now - timedelta(days=30 + index)))
         db.commit()
-    return txn_id, account_id, amount, ben_id, dev_id, recovery
+    return txn_id, account_id, amount, ben_external, dev_external, recovery
 
 
-def run_scenario(db: Session, scenario: str, request_id: str | None = None) -> dict:
-    txn_id, account_id, amount, ben_id, dev_id, recovery = _ensure_scenario(db, scenario)
+def run_scenario(db: Session, scenario: str, request_id: str | None = None, institution_id: str = "default") -> dict:
+    txn_id, account_id, amount, ben_id, dev_id, recovery = _ensure_scenario(db, scenario, institution_id)
     return score_transaction(db, RiskRequest(transaction_id=txn_id, account_id=account_id, amount=amount,
-        currency="NGN", beneficiary_id=ben_id, device_id=dev_id, channel="mobile_app", timestamp=DEMO_AT), request_id=request_id)
+        currency="NGN", beneficiary_id=ben_id, device_id=dev_id, channel="mobile_app", timestamp=DEMO_AT), request_id=request_id, institution_id=institution_id)

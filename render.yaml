@@ -4,7 +4,7 @@ services:
     runtime: python
     rootDir: backend
     buildCommand: pip install -r requirements.txt && python scripts/generate_data.py && python scripts/calibrate_policy.py && python scripts/train_model.py
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: APP_ENV
         value: production
@@ -13,6 +13,12 @@ services:
           name: trustsentinel-db
           property: connectionString
       - key: API_KEY_SECRET
+        sync: false
+      - key: INSTITUTION_API_KEYS_JSON
+        sync: false
+      - key: ANALYST_USERS_JSON
+        sync: false
+      - key: ANALYST_INSTITUTION_ID
         sync: false
       - key: SESSION_SIGNING_SECRET
         sync: false

@@ -15,7 +15,7 @@ Copy-Item .env.example .env
 uvicorn app.main:app --reload
 ```
 
-Open `http://127.0.0.1:8000/docs`. Swagger UI exposes the existing `X-API-Key` authentication through its **Authorize** button. `/health` is liveness; `/ready` checks the database and reports whether ML is loaded. When `API_KEY_SECRET` is configured, send it as `X-API-Key` to the protected `/v1` endpoints. Leave it empty only for local development.
+Open `http://127.0.0.1:8000/docs`. Swagger UI exposes the existing `X-API-Key` authentication through its **Authorize** button. `/health` is liveness; `/ready` checks the database and reports whether ML is loaded. For a single legacy/local client, `API_KEY_SECRET` is accepted as the `default` tenant key. For institution-scoped integrations, set `INSTITUTION_API_KEYS_JSON` to a JSON object mapping institution IDs to unique API keys, for example `{"bank-a":"<secret>","fintech-b":"<secret>"}`. Configure analyst logins through `ANALYST_USERS_JSON` (email to `{ "password_hash": "...", "institution_id": "..." }`); the legacy single analyst settings remain supported for the `ANALYST_INSTITUTION_ID` tenant. Each request is scoped from its authenticated principal. IDs supplied by institutions are tenant-scoped and mapped to internal opaque IDs.
 
 The environment template is [`.env.example`](.env.example). Copy it to `.env` and adjust `DATABASE_URL`, `API_KEY_SECRET`, `CORS_ORIGINS`, `MODEL_PATH`, and the scoring/model settings as needed. Do not commit `.env` or put real secrets in the template.
 
@@ -90,6 +90,8 @@ For managed environments, set `DATABASE_URL`, then run:
 alembic upgrade head
 ```
 
+The institution-tenancy migration adds a `default` tenant to existing rows and a tenant-scoped external identifier mapping. New deployments run Alembic before the server starts. Keep a database backup and follow the normal deployment rollback plan; the migration is additive and its downgrade intentionally preserves tenant data.
+
 The application also creates missing tables on startup to keep the MVP demo simple. Production schema evolution should use Alembic migrations.
 
 ## API overview
@@ -131,4 +133,4 @@ Risk bands retain LOW 0–29, MODERATE through the selected validation threshold
 
 ## MVP readiness
 
-See the current-state audit at ../docs/audit/CERVIQON_CURRENT_STATE_AUDIT.md and implementation summary at ../docs/MVP_IMPLEMENTATION_SUMMARY.md. The current prototype is single-tenant: shared credentials and global records do not provide institution isolation. Do not use real institution data or represent this build as production ready.
+See the current-state audit at ../docs/audit/CERVIQON_CURRENT_STATE_AUDIT.md and implementation summary at ../docs/MVP_IMPLEMENTATION_SUMMARY.md. Institution-scoped credentials and record isolation are implemented with an additive migration, but runtime and target-database verification remain required. Do not use real institution data or represent this build as production ready until the backend suite and migration pass in the deployment environment.

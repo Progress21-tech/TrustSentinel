@@ -4,10 +4,10 @@ Status date: 2026-10-14. This is repository inspection, not certification or pen
 
 | Control | Status | Evidence / follow-up |
 |---|---|---|
-| Server-side API key | Partial | API_KEY_SECRET is backend-only; one shared key is global and production fails closed if missing. Replace with institution-specific credentials before any external institution data. |
+| Server-side API key | Implemented / not verified | `INSTITUTION_API_KEYS_JSON` maps distinct server-side keys to institution IDs; production fails closed if credentials are absent or invalid. Deployment configuration and rotation still require operator setup. |
 | Analyst credentials | Partial | Configured PBKDF2-SHA256 hash and HMAC bearer sessions; rate limit is per process/IP. Verify operational credential policy and session lifecycle. |
-| Institution authorization | FAIL | No institution identity in principal or records; protected records and metrics are global. Do not onboard multiple institutions or real data. |
-| Tenant isolation tests | NOT RUN / missing | Add cross-tenant tests for scoring, transaction, case, outcome, audit and metrics after defining credential mapping and migrating records. |
+| Institution authorization | Implemented / not verified | API-key and analyst principals carry an institution ID; data routes and scoring scope reads/writes by that ID. Verify with the included tests and target database before onboarding. |
+| Tenant isolation tests | Added / not run | Cross-tenant scoring, history, same-ID separation, transaction reads/lists and invalid-key tests are in `tests/integration/test_tenant_isolation.py`. Case, outcome, audit and metrics routes are scoped in code; verify them in the deployment test run. |
 | Input validation | Partial | Pydantic rejects extra fields and constrains identifiers, amount and channel. Test malformed timestamps, amount boundaries and storage rounding. |
 | Transport | Deployment dependent | Verify TLS, custom domains, proxy and origin settings on actual deployment. |
 | Storage encryption / key management | NOT VERIFIED | Depends on database and host configuration; repository evidence is insufficient. |
@@ -18,4 +18,4 @@ Status date: 2026-10-14. This is repository inspection, not certification or pen
 | API abuse/error behavior | Partial | Structured errors exist; tests could not run. Add load, concurrency, replay and dependency-failure coverage. |
 | Payment execution | Not implemented | API returns advisory assessment; it does not authorize, block or reverse funds. |
 
-Release decision: NOT production ready and not cleared for multi-institution evaluation. Synthetic local use only until tenant isolation and operational controls are addressed and tested.
+Release decision: NOT production ready and not cleared for multi-institution evaluation yet. Tenant authorization and scoping are implemented but require test and target-database migration verification. Operational controls such as distributed tenant-aware rate limiting, retention policy and production monitoring remain incomplete or unverified.

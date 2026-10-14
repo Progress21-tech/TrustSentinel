@@ -13,16 +13,18 @@ def _aware(value: datetime | None) -> datetime | None:
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
 
-def extract_features(db: Session, account: Account, amount: float, beneficiary_id: str, device_id: str, at: datetime) -> dict[str, float]:
+def extract_features(db: Session, account: Account, amount: float, beneficiary_id: str, device_id: str, at: datetime, institution_id: str = "default") -> dict[str, float]:
     at = _aware(at) or datetime.now(timezone.utc)
     history = list(db.scalars(
         select(Transaction).where(
+            Transaction.institution_id == institution_id,
             Transaction.account_id == account.account_id,
             Transaction.timestamp < at,
         ).order_by(Transaction.timestamp.desc()).limit(500)
     ))
-    beneficiary = db.scalar(select(Beneficiary).where(Beneficiary.beneficiary_id == beneficiary_id))
+    beneficiary = db.scalar(select(Beneficiary).where(Beneficiary.institution_id == institution_id, Beneficiary.beneficiary_id == beneficiary_id))
     device = db.scalar(select(Device).where(
+        Device.institution_id == institution_id,
         Device.device_id == device_id,
         Device.account_id == account.account_id,
     ))

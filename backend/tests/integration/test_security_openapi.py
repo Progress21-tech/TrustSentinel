@@ -90,9 +90,12 @@ def test_unexpected_errors_keep_generic_response_and_log_traceback(monkeypatch, 
     assert "RuntimeError: scenario failure detail" in caplog.text
 
 
-def test_empty_configured_secret_preserves_open_access(monkeypatch):
+def test_empty_configured_secret_preserves_local_development_tenant(monkeypatch):
     monkeypatch.setattr(settings, "api_key_secret", "")
-    assert require_api_key(None) is None
+    monkeypatch.setattr(settings, "institution_api_keys_json", "{}")
+    principal = require_api_key(None, None)
+    assert principal.institution_id == "default"
+    assert principal.auth_type == "development"
 
 
 def test_protected_risk_score_route_persists_existing_contract(monkeypatch):

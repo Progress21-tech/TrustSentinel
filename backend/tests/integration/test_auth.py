@@ -30,7 +30,10 @@ def test_login_issues_a_validated_expiring_session(monkeypatch):
         assert session.status_code == 200
         assert session.json()["email"] == "analyst@example.test"
         assert session.json()["role"] == "analyst"
-        assert require_api_key(None, f"Bearer {token}") == "analyst@example.test"
+        assert session.json()["institution_id"] == "default"
+        principal = require_api_key(None, f"Bearer {token}")
+        assert principal.subject == "analyst@example.test"
+        assert principal.institution_id == "default"
 
 
 def test_invalid_bearer_session_is_rejected(monkeypatch):
@@ -43,6 +46,7 @@ def test_invalid_bearer_session_is_rejected(monkeypatch):
 def test_production_protected_routes_fail_closed_without_api_key_or_session(monkeypatch):
     monkeypatch.setattr(settings, "app_env", "production")
     monkeypatch.setattr(settings, "api_key_secret", "")
+    monkeypatch.setattr(settings, "institution_api_keys_json", "{}")
     with TestClient(app) as client:
         response = client.get("/v1/metrics/summary")
     assert response.status_code == 503

@@ -10,6 +10,7 @@ export interface SessionUser {
   email: string;
   display_name: string;
   role: "analyst";
+  institution_id: string;
 }
 
 export interface RiskResult {

@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.tenancy import external_identifier, resolve_identifier
 from app.db.models import Account, AuditLog, Beneficiary, Case, Device, Intervention, RiskDecision, RiskSignal, Transaction, utcnow
 from app.ml.predict import registry
 from app.risk_engine.rules import Signal, action_for, evaluate_signals, explain, risk_band, score_rules
@@ -20,8 +21,8 @@ from app.ml.features import FEATURE_SCHEMA_VERSION
 logger = logging.getLogger("trustsentinel.risk")
 
 
-def _response(decision: RiskDecision, signals: list[RiskSignal] | None = None, case: Case | None = None, *, completeness: str = "unknown", request_id: str | None = None) -> dict:
-    return {"assessment_id": decision.decision_id, "request_id": request_id, "data_completeness": {"status": completeness, "has_account_history": True if completeness == "history_available" else False if completeness == "cold_start" else None}, "transaction_id": decision.transaction_id, "risk_score": decision.risk_score, "risk_band": decision.risk_band,
+def _response(decision: RiskDecision, signals: list[RiskSignal] | None = None, case: Case | None = None, *, completeness: str = "unknown", request_id: str | None = None, transaction_id: str | None = None) -> dict:
+    return {"assessment_id": decision.decision_id, "request_id": request_id, "data_completeness": {"status": completeness, "has_account_history": True if completeness == "history_available" else False if completeness == "cold_start" else None}, "transaction_id": transaction_id or decision.transaction_id, "risk_score": decision.risk_score, "risk_band": decision.risk_band,
         "recommended_action": decision.recommended_action, "reason_codes": decision.reason_codes,
         "explanation": decision.explanation, "rule_score": decision.rule_score, "ml_score": decision.ml_score,
         "ml_status": "available" if decision.ml_score is not None else "unavailable_rules_only",
@@ -45,45 +46,53 @@ def _same_assessment_input(txn: Transaction, request: RiskRequest) -> bool:
     return stored == supplied
 
 
-def score_transaction(db: Session, request: RiskRequest, request_id: str | None = None) -> dict:
+def score_transaction(db: Session, request: RiskRequest, request_id: str | None = None, institution_id: str = "default") -> dict:
     started = time.perf_counter()
-    existing = db.scalar(select(RiskDecision).where(RiskDecision.transaction_id == request.transaction_id))
+    external_transaction_id = request.transaction_id
+    from app.db.models import Customer
+    scoped = request.model_copy(update={
+        "transaction_id": resolve_identifier(db, institution_id, "transaction", request.transaction_id, Transaction, "transaction_id"),
+        "account_id": resolve_identifier(db, institution_id, "account", request.account_id, Account, "account_id"),
+        "beneficiary_id": resolve_identifier(db, institution_id, "beneficiary", request.beneficiary_id, Beneficiary, "beneficiary_id"),
+        "device_id": resolve_identifier(db, institution_id, "device", request.device_id, Device, "device_id"),
+    })
+    request = scoped
+    existing = db.scalar(select(RiskDecision).where(RiskDecision.institution_id == institution_id, RiskDecision.transaction_id == request.transaction_id))
     if existing:
-        txn = db.scalar(select(Transaction).where(Transaction.transaction_id == request.transaction_id))
+        txn = db.scalar(select(Transaction).where(Transaction.institution_id == institution_id, Transaction.transaction_id == request.transaction_id))
         if txn is None or not _same_assessment_input(txn, request):
             raise HTTPException(status_code=409, detail={"error": {"code": "IDEMPOTENCY_CONFLICT", "message": "This transaction identifier was already assessed with different transaction facts."}})
-        signals = list(db.scalars(select(RiskSignal).where(RiskSignal.transaction_id == request.transaction_id)))
-        case = db.scalar(select(Case).where(Case.transaction_id == request.transaction_id))
-        audit = db.scalar(select(AuditLog).where(AuditLog.entity_id == existing.decision_id, AuditLog.event == "RISK_DECISION_CREATED"))
+        signals = list(db.scalars(select(RiskSignal).where(RiskSignal.institution_id == institution_id, RiskSignal.transaction_id == request.transaction_id)))
+        case = db.scalar(select(Case).where(Case.institution_id == institution_id, Case.transaction_id == request.transaction_id))
+        audit = db.scalar(select(AuditLog).where(AuditLog.institution_id == institution_id, AuditLog.entity_id == existing.decision_id, AuditLog.event == "RISK_DECISION_CREATED"))
         completeness = (audit.metadata_json or {}).get("data_completeness", "unknown") if audit else "unknown"
-        return _response(existing, signals, case, completeness=completeness, request_id=request_id)
-    account = db.scalar(select(Account).where(Account.account_id == request.account_id))
+        return _response(existing, signals, case, completeness=completeness, request_id=request_id, transaction_id=external_transaction_id)
+    account = db.scalar(select(Account).where(Account.institution_id == institution_id, Account.account_id == request.account_id))
     if account is None:
         # Identifiers identify an incoming event; they are not a membership gate.
         # Provision minimal synthetic entity records so the event can be persisted
         # while feature extraction treats its entities as previously unseen.
-        from app.db.models import Customer
-        customer_id = f"score-{hashlib.sha256(request.account_id.encode()).hexdigest()[:32]}"
-        customer = db.scalar(select(Customer).where(Customer.customer_id == customer_id))
+        customer_id = f"score-{hashlib.sha256((institution_id + request.account_id).encode()).hexdigest()[:32]}"
+        customer = db.scalar(select(Customer).where(Customer.institution_id == institution_id, Customer.customer_id == customer_id))
         if customer is None:
-            customer = Customer(customer_id=customer_id, risk_profile="NORMAL", status="ACTIVE")
+            customer = Customer(institution_id=institution_id, customer_id=customer_id, risk_profile="NORMAL", status="ACTIVE")
             db.add(customer)
             db.flush()
-        account = Account(account_id=request.account_id, customer_id=customer_id, status="ACTIVE")
+        account = Account(institution_id=institution_id, account_id=request.account_id, customer_id=customer_id, status="ACTIVE")
         db.add(account)
         db.flush()
     if account.status != "ACTIVE":
         raise HTTPException(status_code=409, detail={"error": {"code": "ACCOUNT_INACTIVE", "message": "The specified account is not active."}})
-    if db.scalar(select(Beneficiary).where(Beneficiary.beneficiary_id == request.beneficiary_id)) is None:
-        db.add(Beneficiary(beneficiary_id=request.beneficiary_id, status="ACTIVE", risk_score=0.0))
-    device = db.scalar(select(Device).where(Device.device_id == request.device_id))
+    if db.scalar(select(Beneficiary).where(Beneficiary.institution_id == institution_id, Beneficiary.beneficiary_id == request.beneficiary_id)) is None:
+        db.add(Beneficiary(institution_id=institution_id, beneficiary_id=request.beneficiary_id, status="ACTIVE", risk_score=0.0))
+    device = db.scalar(select(Device).where(Device.institution_id == institution_id, Device.device_id == request.device_id))
     if device is None:
-        db.add(Device(device_id=request.device_id, account_id=request.account_id, risk_flags=[]))
+        db.add(Device(institution_id=institution_id, device_id=request.device_id, account_id=request.account_id, risk_flags=[]))
     elif device.account_id != request.account_id:
         raise HTTPException(status_code=422, detail={"error": {"code": "DEVICE_ACCOUNT_MISMATCH", "message": "The specified device belongs to a different account."}})
     db.flush()
     at = request.timestamp or datetime.now(timezone.utc)
-    features = extract_features(db, account, request.amount, request.beneficiary_id, request.device_id, at)
+    features = extract_features(db, account, request.amount, request.beneficiary_id, request.device_id, at, institution_id)
     completeness = "history_available" if features["has_account_history"] else "cold_start"
     signals = evaluate_signals(features)
     rule_score = score_rules(signals)
@@ -103,29 +112,29 @@ def score_transaction(db: Session, request: RiskRequest, request_id: str | None 
     band = risk_band(final_score, registry.high_risk_threshold if registry.is_available else 60)
     action = action_for(band)
     codes, explanation = explain(signals, band, action)
-    txn = Transaction(transaction_id=request.transaction_id, account_id=request.account_id, beneficiary_id=request.beneficiary_id,
+    txn = Transaction(institution_id=institution_id, transaction_id=request.transaction_id, account_id=request.account_id, beneficiary_id=request.beneficiary_id,
         device_id=request.device_id, amount=request.amount, currency=request.currency.upper(), channel=request.channel,
         timestamp=at, status="EVALUATED")
     db.add(txn); db.flush()
     persisted_signals = []
     for signal in signals:
         if signal.triggered:
-            row = RiskSignal(signal_id=f"sig_{uuid.uuid4().hex}", transaction_id=txn.transaction_id,
+            row = RiskSignal(institution_id=institution_id, signal_id=f"sig_{uuid.uuid4().hex}", transaction_id=txn.transaction_id,
                 signal_type=signal.signal_type, source_feature=signal.source_feature, signal_value=signal.value, severity=signal.severity, evidence=signal.evidence)
             db.add(row); persisted_signals.append(row)
-    decision = RiskDecision(decision_id=f"dec_{uuid.uuid4().hex}", transaction_id=txn.transaction_id, rule_score=rule_score,
+    decision = RiskDecision(institution_id=institution_id, decision_id=f"dec_{uuid.uuid4().hex}", transaction_id=txn.transaction_id, rule_score=rule_score,
         ml_score=ml_score, risk_score=round(final_score, 2), risk_band=band, recommended_action=action,
         reason_codes=codes, explanation=explanation, model_version=registry.decision_version if ml_score is not None else "rules-only",
         rule_version=settings.rule_version, latency_ms=0.0)
     db.add(decision)
     case = None
     if action in {"HOLD", "REVIEW"}:
-        case = Case(case_id=f"case_{uuid.uuid4().hex[:12]}", transaction_id=txn.transaction_id, status="OPEN")
+        case = Case(institution_id=institution_id, case_id=f"case_{uuid.uuid4().hex[:12]}", transaction_id=txn.transaction_id, status="OPEN")
         db.add(case)
-        db.add(AuditLog(actor="system", event="CASE_CREATED", entity_type="case", entity_id=case.case_id, metadata_json={"transaction_id": txn.transaction_id}))
+        db.add(AuditLog(institution_id=institution_id, actor="system", event="CASE_CREATED", entity_type="case", entity_id=case.case_id, metadata_json={"transaction_id": txn.transaction_id}))
     if action != "ALLOW":
-        db.add(Intervention(intervention_id=f"int_{uuid.uuid4().hex}", transaction_id=txn.transaction_id, action=action))
-    db.add(AuditLog(actor="system", event="RISK_DECISION_CREATED", entity_type="risk_decision", entity_id=decision.decision_id,
+        db.add(Intervention(institution_id=institution_id, intervention_id=f"int_{uuid.uuid4().hex}", transaction_id=txn.transaction_id, action=action))
+    db.add(AuditLog(institution_id=institution_id, actor="system", event="RISK_DECISION_CREATED", entity_type="risk_decision", entity_id=decision.decision_id,
                     metadata_json={"transaction_id": txn.transaction_id, "risk_score": round(final_score, 2), "risk_band": band, "action": action, "reason_codes": codes,
                         "rule_score": rule_score, "ml_score": ml_score,
                         "model_version": registry.model_version if ml_score is not None else "rules-only",
@@ -144,4 +153,4 @@ def score_transaction(db: Session, request: RiskRequest, request_id: str | None 
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "rules_score": round(rule_score, 3), "ml_score": ml_score, "hybrid_score": round(final_score, 3),
         "risk_band": band, "action": action, "ml_inference_latency_ms": ml_latency_ms, "decision_latency_ms": latency}))
-    return _response(decision, persisted_signals, case, completeness=completeness, request_id=request_id)
+    return _response(decision, persisted_signals, case, completeness=completeness, request_id=request_id, transaction_id=external_transaction_id)

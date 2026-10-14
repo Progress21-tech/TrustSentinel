@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, Numeric, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -11,8 +11,9 @@ def utcnow() -> datetime:
 
 class Customer(Base):
     __tablename__ = "customers"
+    institution_id: Mapped[str] = mapped_column(String(32), default="default", server_default=text("'default'"), index=True, nullable=False)
     id: Mapped[int] = mapped_column(primary_key=True)
-    customer_id: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    customer_id: Mapped[str] = mapped_column(String(160), unique=True, index=True)
     risk_profile: Mapped[str] = mapped_column(String(40), default="NORMAL")
     status: Mapped[str] = mapped_column(String(30), default="ACTIVE", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -22,6 +23,7 @@ class Customer(Base):
 
 class Account(Base):
     __tablename__ = "accounts"
+    institution_id: Mapped[str] = mapped_column(String(32), default="default", server_default=text("'default'"), index=True, nullable=False)
     id: Mapped[int] = mapped_column(primary_key=True)
     account_id: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     customer_id: Mapped[str] = mapped_column(ForeignKey("customers.customer_id"), index=True)
@@ -35,6 +37,7 @@ class Account(Base):
 
 class Device(Base):
     __tablename__ = "devices"
+    institution_id: Mapped[str] = mapped_column(String(32), default="default", server_default=text("'default'"), index=True, nullable=False)
     id: Mapped[int] = mapped_column(primary_key=True)
     device_id: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     account_id: Mapped[str] = mapped_column(ForeignKey("accounts.account_id"), index=True)
@@ -46,6 +49,7 @@ class Device(Base):
 
 class Beneficiary(Base):
     __tablename__ = "beneficiaries"
+    institution_id: Mapped[str] = mapped_column(String(32), default="default", server_default=text("'default'"), index=True, nullable=False)
     id: Mapped[int] = mapped_column(primary_key=True)
     beneficiary_id: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -56,10 +60,11 @@ class Beneficiary(Base):
 
 class Transaction(Base):
     __tablename__ = "transactions"
+    institution_id: Mapped[str] = mapped_column(String(32), default="default", server_default=text("'default'"), index=True, nullable=False)
     id: Mapped[int] = mapped_column(primary_key=True)
-    transaction_id: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    transaction_id: Mapped[str] = mapped_column(String(160), unique=True, index=True)
     account_id: Mapped[str] = mapped_column(ForeignKey("accounts.account_id"), index=True)
-    beneficiary_id: Mapped[str] = mapped_column(String(80), index=True)
+    beneficiary_id: Mapped[str] = mapped_column(String(160), index=True)
     device_id: Mapped[str] = mapped_column(String(80), index=True)
     amount: Mapped[float] = mapped_column(Numeric(16, 2))
     currency: Mapped[str] = mapped_column(String(8), default="NGN")
@@ -71,6 +76,7 @@ class Transaction(Base):
 
 class RiskSignal(Base):
     __tablename__ = "risk_signals"
+    institution_id: Mapped[str] = mapped_column(String(32), default="default", server_default=text("'default'"), index=True, nullable=False)
     id: Mapped[int] = mapped_column(primary_key=True)
     signal_id: Mapped[str] = mapped_column(String(100), unique=True)
     transaction_id: Mapped[str] = mapped_column(ForeignKey("transactions.transaction_id"), index=True)
@@ -84,6 +90,7 @@ class RiskSignal(Base):
 
 class RiskDecision(Base):
     __tablename__ = "risk_decisions"
+    institution_id: Mapped[str] = mapped_column(String(32), default="default", server_default=text("'default'"), index=True, nullable=False)
     id: Mapped[int] = mapped_column(primary_key=True)
     decision_id: Mapped[str] = mapped_column(String(100), unique=True)
     transaction_id: Mapped[str] = mapped_column(ForeignKey("transactions.transaction_id"), index=True)
@@ -102,6 +109,7 @@ class RiskDecision(Base):
 
 class Case(Base):
     __tablename__ = "cases"
+    institution_id: Mapped[str] = mapped_column(String(32), default="default", server_default=text("'default'"), index=True, nullable=False)
     id: Mapped[int] = mapped_column(primary_key=True)
     case_id: Mapped[str] = mapped_column(String(100), unique=True, index=True)
     transaction_id: Mapped[str] = mapped_column(ForeignKey("transactions.transaction_id"), index=True)
@@ -115,6 +123,7 @@ class Case(Base):
 
 class Intervention(Base):
     __tablename__ = "interventions"
+    institution_id: Mapped[str] = mapped_column(String(32), default="default", server_default=text("'default'"), index=True, nullable=False)
     id: Mapped[int] = mapped_column(primary_key=True)
     intervention_id: Mapped[str] = mapped_column(String(100), unique=True)
     transaction_id: Mapped[str] = mapped_column(ForeignKey("transactions.transaction_id"), index=True)
@@ -125,10 +134,25 @@ class Intervention(Base):
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
+    institution_id: Mapped[str] = mapped_column(String(32), default="default", server_default=text("'default'"), index=True, nullable=False)
     id: Mapped[int] = mapped_column(primary_key=True)
     actor: Mapped[str] = mapped_column(String(80))
     event: Mapped[str] = mapped_column(String(80))
     entity_type: Mapped[str] = mapped_column(String(40))
     entity_id: Mapped[str] = mapped_column(String(100), index=True)
     metadata_json: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class TenantIdentifier(Base):
+    __tablename__ = "tenant_identifiers"
+    __table_args__ = (
+        UniqueConstraint("institution_id", "entity_type", "external_id", name="uq_tenant_identifier_external"),
+        UniqueConstraint("institution_id", "entity_type", "internal_id", name="uq_tenant_identifier_internal"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    institution_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    entity_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    external_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    internal_id: Mapped[str] = mapped_column(String(100), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

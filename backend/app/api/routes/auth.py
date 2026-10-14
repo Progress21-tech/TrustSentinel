@@ -8,6 +8,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
+from app.core.tenancy import LEGACY_INSTITUTION_ID, validate_institution_id
 
 router = APIRouter(prefix="/v1/auth", tags=["authentication"])
 SESSION_SECONDS = 8 * 60 * 60
@@ -37,13 +38,13 @@ def _password_matches(password: str, encoded: str) -> bool:
         return False
 
 
-def issue_session(email: str) -> str:
-    payload = _b64(json.dumps({"sub": email, "exp": int(time.time()) + SESSION_SECONDS}, separators=(",", ":")).encode())
+def issue_session(email: str, institution_id: str = LEGACY_INSTITUTION_ID) -> str:
+    payload = _b64(json.dumps({"sub": email, "institution_id": institution_id, "exp": int(time.time()) + SESSION_SECONDS}, separators=(",", ":")).encode())
     signature = hmac.new(settings.session_signing_secret.encode(), payload.encode(), hashlib.sha256).digest()
     return f"{payload}.{_b64(signature)}"
 
 
-def verify_session_token(token: str) -> str:
+def verify_session_token(token: str) -> dict:
     try:
         payload, signature = token.split(".", 1)
         expected = hmac.new(settings.session_signing_secret.encode(), payload.encode(), hashlib.sha256).digest()
@@ -52,27 +53,62 @@ def verify_session_token(token: str) -> str:
         claims = json.loads(_decode(payload))
         if int(claims["exp"]) <= int(time.time()) or not isinstance(claims["sub"], str):
             raise ValueError("expiry")
-        return claims["sub"]
+        claims.setdefault("institution_id", LEGACY_INSTITUTION_ID)
+        if claims["institution_id"] != LEGACY_INSTITUTION_ID:
+            validate_institution_id(claims["institution_id"])
+        return claims
     except (ValueError, KeyError, TypeError, json.JSONDecodeError):
         raise HTTPException(status_code=401, detail={"error": {"code": "SESSION_EXPIRED", "message": "Sign in again to continue."}})
 
 
 @router.post("/login")
 def login(request: LoginRequest):
-    if not settings.analyst_email or not settings.analyst_password_hash or len(settings.session_signing_secret) < 32:
+    if len(settings.session_signing_secret) < 32:
+        raise HTTPException(status_code=503, detail={"error": {"code": "AUTH_NOT_CONFIGURED", "message": "Analyst sign-in is not configured."}})
+    institution_id = settings.analyst_institution_id
+    try:
+        if institution_id != LEGACY_INSTITUTION_ID:
+            validate_institution_id(institution_id)
+    except ValueError:
+        raise HTTPException(status_code=503, detail={"error": {"code": "AUTH_CONFIGURATION_INVALID", "message": "Analyst institution assignment is misconfigured."}})
+    configured_email = settings.analyst_email
+    configured_hash = settings.analyst_password_hash
+    users = settings.analyst_users_json
+    if users and users != "{}":
+        try:
+            configured = json.loads(users)
+            if not isinstance(configured, dict):
+                raise ValueError("analyst users must be a JSON object")
+            matched = next(((email, value) for email, value in configured.items() if isinstance(email, str) and email.casefold() == request.email.casefold()), None)
+            entry = matched[1] if matched else None
+            if isinstance(entry, dict):
+                configured_email = matched[0]
+                configured_hash = entry.get("password_hash", "")
+                institution_id = entry.get("institution_id", "")
+                if institution_id != LEGACY_INSTITUTION_ID:
+                    validate_institution_id(institution_id)
+            else:
+                configured_email = ""
+                configured_hash = ""
+        except (ValueError, TypeError, json.JSONDecodeError):
+            raise HTTPException(status_code=503, detail={"error": {"code": "AUTH_CONFIGURATION_INVALID", "message": "Analyst accounts are misconfigured."}})
+    if not configured_email or not configured_hash:
+        if users and users != "{}":
+            raise HTTPException(status_code=401, detail={"error": {"code": "INVALID_CREDENTIALS", "message": "Email or password is incorrect."}})
         raise HTTPException(status_code=503, detail={"error": {"code": "AUTH_NOT_CONFIGURED", "message": "Analyst sign-in is not configured."}})
     candidate_email = request.email.casefold()
-    configured_email = settings.analyst_email.casefold()
-    valid_email = candidate_email.isascii() and configured_email.isascii() and hmac.compare_digest(candidate_email, configured_email)
-    valid_password = _password_matches(request.password, settings.analyst_password_hash)
+    expected_email = configured_email.casefold()
+    valid_email = candidate_email.isascii() and expected_email.isascii() and hmac.compare_digest(candidate_email, expected_email)
+    valid_password = _password_matches(request.password, configured_hash)
     if not (valid_email and valid_password):
         raise HTTPException(status_code=401, detail={"error": {"code": "INVALID_CREDENTIALS", "message": "Email or password is incorrect."}})
-    return {"access_token": issue_session(settings.analyst_email), "token_type": "bearer", "expires_in": SESSION_SECONDS}
+    return {"access_token": issue_session(configured_email, institution_id), "token_type": "bearer", "expires_in": SESSION_SECONDS}
 
 
 @router.get("/session")
 def session(authorization: str | None = Header(default=None)):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail={"error": {"code": "SESSION_EXPIRED", "message": "Sign in again to continue."}})
-    email = verify_session_token(authorization[7:])
-    return {"email": email, "display_name": email.split("@", 1)[0], "role": "analyst"}
+    claims = verify_session_token(authorization[7:])
+    email = claims["sub"]
+    return {"email": email, "display_name": email.split("@", 1)[0], "role": "analyst", "institution_id": claims["institution_id"]}
