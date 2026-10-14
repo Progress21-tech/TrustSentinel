@@ -17,6 +17,8 @@ npm run dev
 
 Open `http://localhost:3000`. Protected `/dashboard` routes verify the signed bearer session with `GET /v1/auth/session`. Sessions are held in browser `sessionStorage` for the current tab and expire at the backend after eight hours.
 
+The public landing page is served at `/`. Existing analyst sign-in and dashboard routes remain at `/login` and `/dashboard`. Set `NEXT_PUBLIC_DESIGN_PARTNER_URL` to a monitored HTTPS page or `mailto:` destination before publishing the design-partner call to action. If it is unset or invalid, the page displays that the contact destination is pending; it does not claim that a form was submitted. This public value contains no secret. Privacy and legal pages also need to be published and linked before launch.
+
 ## Backend data
 
 The overview and metrics screens read `/v1/metrics/summary`; transaction and case screens read `/v1/transactions` and `/v1/cases`; audit history uses `/v1/audit`. The scenario lab submits only the backend's supported scenario identifiers to `/v1/sandbox/scenario` and checks persisted transaction/audit records. Direct scoring uses `/v1/risk/score`. Empty and unavailable backend data are shown as such.
@@ -24,5 +26,7 @@ The overview and metrics screens read `/v1/metrics/summary`; transaction and cas
 Synthetic scenarios create persisted synthetic records. They do not represent live payments or real-world fraud performance.
 
 ## Visual design source
+
+The public landing page uses the Eucalyptus palette specified for Cerviqon and a typographic wordmark. The analyst workspace retains its existing blue visual tokens. Space Grotesk and Inter are requested by the landing page when available, with system fallbacks; no font files are bundled.
 
 The Cerviqon visual tokens are based on the supplied pitch deck's embedded RGB vector colors: `#F2F7FA` background, `#164B82` brand blue, `#343434` text, `#C8D1D9` dividers, plus white and black. `#E7EFF6` is a light brand-blue tint for interactive surfaces. Risk and service-status colors remain semantic. The deck embeds Telegraf (UltraLight, Regular, Bold), TT Hoves Regular, and Noto Sans Bold. Those licensed font files are not included in the frontend, so the CSS names them first and falls back to installed system sans-serif fonts; exact font rendering requires appropriately licensed font files.

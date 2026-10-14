@@ -13,8 +13,8 @@ Status date: 2026-10-14. Baseline audit: docs/audit/CERVIQON_CURRENT_STATE_AUDIT
 | 4 — Integration simulator | Implemented; not executed | backend/scripts/simulate_integration.py submits synthetic fixtures and retries to the actual API. |
 | 5 — Evaluation and security | Scripts and controls implemented; evaluation/tests not run | Account-disjoint synthetic pipeline and holdout evaluator exist. No dataset/model artifact/report was generated in this environment, so no metrics are claimed. Tenant regression coverage includes scoring, ID collision, history, transaction reads, cases/outcomes, audit and metrics. |
 | 6 — Documentation and acceptance gate | Documentation updated; gate not passed | Setup, architecture/data flow, API, integration, evaluation limitations, deployment, rollback and security readiness are documented. Runtime test, migration and build criteria remain unverified. |
-| 7 — Public landing page | Not started; correctly held at acceptance gate | The implementation brief forbids beginning the public website until the MVP acceptance gate passes. Contact/legal destinations are also not configured. |
-| 8 — Final delivery report | Complete as a status report | Results and blockers are stated below. No local tests or live deployment are claimed. |
+| 7 - Public landing page | Implemented in source; not runtime or visually verified | At the user's direction, the root page now contains the Eucalyptus public site while preserving `/login` and `/dashboard`. The MVP acceptance gate remains unpassed. Contact and legal destinations are launch blockers. |
+| 8 - Final delivery report | Status report complete; final verification incomplete | Actual execution limits and outstanding checks are listed below. No local tests or live deployment are claimed. |
 
 ## Implemented changes
 
@@ -36,8 +36,8 @@ Status date: 2026-10-14. Baseline audit: docs/audit/CERVIQON_CURRENT_STATE_AUDIT
 | Synthetic training/evaluation | NOT RUN. No evaluation metrics or model artifact are present in this checkout. |
 | Integration simulator/manual workflows | NOT RUN; require backend runtime and configured development credentials. |
 | Frontend lint/production build | NOT RUN. The Node installation directory contains npm shims but no node.exe; frontend dependencies are absent. |
-| Deployment/browser/responsive/accessibility checks | NOT RUN. No live deployment or usable browser test runtime was available. |
-| Static whitespace check | PASSED: git diff --check exit code 0 after the final code edits. Git emitted only working-copy line-ending warnings. |
+| Deployment/browser/responsive/accessibility checks | NOT RUN. No live deployment or usable browser test runtime was available. Landing page source includes responsive breakpoints, keyboard navigation, semantic landmarks, reduced-motion handling, and labeled controls, but these have not been verified in a browser. |
+| Static whitespace check | PASSED: `git diff --check` exit code 0 after the landing-page additions. Git emitted working-copy line-ending warnings only. |
 
 ## Acceptance gate and release blockers
 
@@ -45,7 +45,8 @@ The gate has not passed. The scoring, persistence, authentication, tenant-isolat
 
 Security controls still incomplete or deployment-dependent include distributed tenant-aware rate limiting, data retention/deletion, production key rotation and storage-encryption verification. Do not use real institution data or describe the prototype as production-ready. Synthetic metrics, when generated, must be labeled as proxies for synthetic labels rather than real-world fraud performance.
 
-Phase 7 remains unstarted because the brief requires the acceptance gate to pass first. The repository also has no approved contact destination or privacy/legal pages, so a truthful public CTA/footer cannot yet be configured. Continue with the test/build/migration acceptance work before authoring or publishing that site.
+The latest user instruction explicitly requested Phase 7 and 8, so Phase 7 source work proceeded while the earlier MVP acceptance gate remains unpassed. The public landing page is at `/`; it describes current capabilities with synthetic-data and advisory limitations, preserves the analyst entry points, and does not contain a nonfunctional form or fabricated contact details. `NEXT_PUBLIC_DESIGN_PARTNER_URL` is a placeholder in `my-app/.env.local.example`; until a monitored destination is configured, the page clearly displays a contact-pending notice. Privacy and legal pages are not present. The supplied NIBSS-linked working paper reports ₦25.85 billion of Nigerian electronic-payment fraud losses for 2025, down 51% from 2024; the page attributes the period and explicitly says this does not establish Cerviqon effectiveness ([source](https://ir.nilds.gov.ng/handle/123456789/3473)).
+Phase 7 is not verified or ready to publish: frontend lint/build, route checks, visual/responsive review, and accessibility review have not run. Phase 8 is therefore a delivery status report, not a passed final verification. Run the full checks in a supported Python/Node environment and configure actual contact and legal destinations before treating the website or MVP as launch-ready.
 
 ## Reproduction commands
 
